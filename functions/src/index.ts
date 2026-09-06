@@ -79,7 +79,7 @@ export const fetchAdminPatientDirectory = onCall(async (request) => {
   return snapshot.docs
     .filter((entry) => {
       const role = entry.data().role
-      return role !== 'admin' && role !== 'doctor'
+      return role === 'patient'
     })
     .map((entry): AdminPatient => ({
       id: entry.id,
