@@ -40,11 +40,29 @@ service cloud.firestore {
           'lastCheckIn'
         ]);
     }
+    function canAdminManagePatientAccount() {
+      return isAdmin()
+        && request.resource.data.role == resource.data.role
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'name',
+          'assignedDoctorId',
+          'active',
+          'updatedAt'
+        ]);
+    }
 
     match /users/{userId} {
-      allow create: if isOwner(userId) || isAdmin();
-      allow read: if isOwner(userId) || isAdmin() || isAssignedDoctor(userId);
-      allow update: if isOwner(userId) || isAdmin() || canDoctorUpdateAssignedPatient(userId);
+      allow create: if isOwner(userId) || (isAdmin()
+        && request.resource.data.role == 'user'
+        && request.resource.data.keys().hasOnly([
+          'name',
+          'assignedDoctorId',
+          'active',
+          'role',
+          'createdAt'
+        ]));
+      allow read: if isOwner(userId) || isAssignedDoctor(userId);
+      allow update: if isOwner(userId) || canAdminManagePatientAccount() || canDoctorUpdateAssignedPatient(userId);
       allow delete: if isAdmin();
     }
 
@@ -68,13 +86,11 @@ service cloud.firestore {
     }
 
     match /alerts/{alertId} {
-      allow create: if isAdmin()
-        || (isDoctor()
+      allow create: if isDoctor()
           && request.resource.data.doctorId == request.auth.uid
-          && isAssignedDoctor(request.resource.data.patientId));
-      allow read: if isAdmin() || (isDoctor() && resource.data.doctorId == request.auth.uid) || isOwner(resource.data.patientId);
-      allow update: if isAdmin() || (isDoctor() && resource.data.doctorId == request.auth.uid);
-      allow delete: if isAdmin() || (isDoctor() && resource.data.doctorId == request.auth.uid);
+          && isAssignedDoctor(request.resource.data.patientId);
+      allow read: if (isDoctor() && resource.data.doctorId == request.auth.uid) || isOwner(resource.data.patientId);
+      allow update, delete: if isDoctor() && resource.data.doctorId == request.auth.uid;
     }
 
     match /auditLogs/{logId} {
@@ -83,37 +99,37 @@ service cloud.firestore {
     }
 
     match /reports/{reportId} {
-      allow read: if isAdmin() || (isDoctor() && resource.data.doctorId == request.auth.uid);
-      allow write: if isAdmin();
+      allow read: if isDoctor() && resource.data.doctorId == request.auth.uid;
+      allow write: if false;
     }
 
     match /activity_logs/{logId} {
       allow create: if isOwner(request.resource.data.userId);
-      allow read: if isOwner(resource.data.userId) || isAdmin() || isAssignedDoctorForResource();
+      allow read: if isOwner(resource.data.userId) || isAssignedDoctorForResource();
       allow update, delete: if false;
     }
 
     match /transcriptions/{transcriptionId} {
       allow create: if isOwner(request.resource.data.userId);
-      allow read: if isOwner(resource.data.userId) || isAdmin() || isAssignedDoctorForResource();
+      allow read: if isOwner(resource.data.userId) || isAssignedDoctorForResource();
       allow update, delete: if false;
     }
 
     match /checkins/{checkinId} {
       allow create: if isOwner(request.resource.data.userId);
-      allow read: if isOwner(resource.data.userId) || isAdmin() || isAssignedDoctorForResource();
+      allow read: if isOwner(resource.data.userId) || isAssignedDoctorForResource();
       allow update, delete: if isOwner(resource.data.userId);
     }
 
     match /goals/{goalId} {
       allow create: if isOwner(request.resource.data.userId);
-      allow read: if isOwner(resource.data.userId) || isAdmin() || isAssignedDoctorForResource();
+      allow read: if isOwner(resource.data.userId) || isAssignedDoctorForResource();
       allow update, delete: if isOwner(resource.data.userId);
     }
 
     match /users/{userId}/smartwatchHealthRecords/{recordId} {
       allow create: if isOwner(userId);
-      allow read: if isOwner(userId) || isAdmin() || isAssignedDoctor(userId);
+      allow read: if isOwner(userId) || isAssignedDoctor(userId);
       allow update, delete: if isOwner(userId);
     }
 

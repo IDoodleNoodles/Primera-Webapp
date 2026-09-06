@@ -276,6 +276,76 @@
   grid-template-columns: 1.2fr 1fr;
 }
 
+.panel-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.panel-heading h3 {
+  margin-bottom: 0;
+}
+
+.evidence-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  gap: 12px;
+  margin: 18px 0;
+}
+
+.evidence-summary div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  background: var(--bg-soft);
+  border-radius: 14px;
+}
+
+.evidence-summary span,
+.evidence-list span,
+.evidence-list small {
+  color: var(--muted);
+}
+
+.evidence-note {
+  padding: 12px 14px;
+  border-left: 3px solid var(--accent);
+  background: var(--accent-soft);
+}
+
+.evidence-columns {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.evidence-columns h4 {
+  margin: 0 0 10px;
+}
+
+.evidence-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.evidence-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.evidence-values {
+  font-size: 0.82rem;
+}
+
 .detail-list {
   display: grid;
   grid-template-columns: repeat(2, minmax(140px, 1fr));
@@ -521,7 +591,8 @@
   .landing-shell,
   .two-column,
   .detail-grid,
-  .summary-grid {
+  .summary-grid,
+  .evidence-columns {
     grid-template-columns: 1fr;
   }
 

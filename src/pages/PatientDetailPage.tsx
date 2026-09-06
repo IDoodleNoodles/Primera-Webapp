@@ -6,12 +6,13 @@ import {
   createDoctorAlert,
   deleteDoctorAlert,
   fetchDoctorAlertsForPatient,
+  fetchPatientClinicalEvidence,
   fetchPatientByIdForDoctor,
   updateDoctorAlert,
   updatePatientForDoctor,
 } from '../services/portalService'
 import { useAuth } from '../context/AuthContext'
-import type { DoctorAlert, Patient } from '../types'
+import type { DoctorAlert, Patient, PatientClinicalEvidence } from '../types'
 
 const emptyAlert = { title: '', details: '', status: 'active' as 'active' | 'resolved' }
 
@@ -21,6 +22,7 @@ export function PatientDetailPage() {
   const demoMode = !firebaseConfigured
   const [patient, setPatient] = useState<Patient | null>(null)
   const [alerts, setAlerts] = useState<DoctorAlert[]>([])
+  const [evidence, setEvidence] = useState<PatientClinicalEvidence | null>(null)
   const [patientForm, setPatientForm] = useState<Pick<Patient, 'riskLevel' | 'riskScore' | 'status' | 'symptoms' | 'vitals'> | null>(null)
   const [alertForm, setAlertForm] = useState(emptyAlert)
   const [editingAlertId, setEditingAlertId] = useState<string | null>(null)
@@ -46,6 +48,7 @@ export function PatientDetailPage() {
         vitals: result.vitals,
       } : null)
       setAlerts(getMockDoctorAlerts(user.uid, patientId))
+      setEvidence(null)
       setLoading(false)
       return
     }
@@ -54,8 +57,9 @@ export function PatientDetailPage() {
     Promise.allSettled([
       fetchPatientByIdForDoctor(user.uid, patientId),
       fetchDoctorAlertsForPatient(user.uid, patientId),
+      fetchPatientClinicalEvidence(user.uid, patientId),
     ])
-      .then(([patientResult, alertsResult]) => {
+      .then(([patientResult, alertsResult, evidenceResult]) => {
         const result = patientResult.status === 'fulfilled' ? patientResult.value : null
         setPatient(result)
         setPatientForm(result ? {
@@ -66,6 +70,7 @@ export function PatientDetailPage() {
           vitals: result.vitals,
         } : null)
         setAlerts(alertsResult.status === 'fulfilled' ? alertsResult.value : [])
+        setEvidence(evidenceResult.status === 'fulfilled' ? evidenceResult.value : null)
       })
       .finally(() => setLoading(false))
   }, [user, patientId, demoMode])
@@ -156,6 +161,15 @@ export function PatientDetailPage() {
     setAlertForm({ title: alert.title, details: alert.details, status: alert.status })
   }
 
+  function applyScreeningSignal() {
+    if (!patientForm || !evidence?.screeningSignal.score || !evidence.screeningSignal.level) return
+    setPatientForm({
+      ...patientForm,
+      riskLevel: evidence.screeningSignal.level,
+      riskScore: evidence.screeningSignal.score,
+    })
+  }
+
   if (loading) {
     return (
       <div className="page">
@@ -208,6 +222,7 @@ export function PatientDetailPage() {
             <form className="admin-form" onSubmit={saveClinicalSnapshot}>
               <label>Risk level<select value={patientForm.riskLevel} onChange={(event) => setPatientForm({ ...patientForm, riskLevel: event.target.value as Patient['riskLevel'] })}><option value="low">Low</option><option value="moderate">Moderate</option><option value="high">High</option><option value="critical">Critical</option></select></label>
               <label>Risk score<input type="number" min="0" max="100" value={patientForm.riskScore} onChange={(event) => setPatientForm({ ...patientForm, riskScore: Number(event.target.value) })} /></label>
+              {evidence && evidence.screeningSignal.score !== null && evidence.screeningSignal.score > 0 && <button type="button" className="button" onClick={applyScreeningSignal}>Use latest data ({evidence.screeningSignal.score})</button>}
               <label>Status<select value={patientForm.status} onChange={(event) => setPatientForm({ ...patientForm, status: event.target.value as Patient['status'] })}><option value="stable">Stable</option><option value="monitoring">Monitoring</option><option value="escalated">Escalated</option></select></label>
               <label>Symptoms<input type="number" min="0" max="10" value={patientForm.symptoms} onChange={(event) => setPatientForm({ ...patientForm, symptoms: Number(event.target.value) })} /></label>
               <label>Heart rate<input type="number" min="0" value={patientForm.vitals.heartRate} onChange={(event) => setPatientForm({ ...patientForm, vitals: { ...patientForm.vitals, heartRate: Number(event.target.value) } })} /></label>
@@ -245,6 +260,54 @@ export function PatientDetailPage() {
           </ul>
         </div>
       </section>
+
+      {evidence && <section className="panel evidence-panel">
+        <div className="panel-heading">
+          <div>
+            <p className="eyebrow">Connected patient data</p>
+            <h3>Android records</h3>
+          </div>
+          <span className="muted">Read-only clinical context</span>
+        </div>
+        <div className="evidence-summary">
+          <div>
+            <span>Screening signal</span>
+            <strong>{evidence.screeningSignal.score === null ? 'No data' : `${evidence.screeningSignal.score} / 100`}</strong>
+          </div>
+          <div>
+            <span>Check-ins</span>
+            <strong>{evidence.checkins.length}</strong>
+          </div>
+          <div>
+            <span>Voice notes</span>
+            <strong>{evidence.transcriptions.length}</strong>
+          </div>
+          <div>
+            <span>Smartwatch records</span>
+            <strong>{evidence.smartwatchHealthRecords.length}</strong>
+          </div>
+        </div>
+        {evidence.screeningSignal.reasons.length > 0 && <p className="evidence-note"><strong>{evidence.screeningSignal.level} signal:</strong> {evidence.screeningSignal.reasons.join(' ')}</p>}
+        <div className="evidence-columns">
+          {([
+            ['Check-ins', evidence.checkins],
+            ['Voice notes', evidence.transcriptions],
+            ['Goals', evidence.goals],
+            ['Smartwatch', evidence.smartwatchHealthRecords],
+          ] as const).map(([label, records]) => <div key={label}>
+            <h4>{label}</h4>
+            {!records.length && <p className="muted">No records found.</p>}
+            <ul className="evidence-list">
+              {records.slice(0, 5).map((record) => <li key={record.id}>
+                <strong>{record.title}</strong>
+                <span>{record.summary}</span>
+                {record.timestamp && <small>{new Date(record.timestamp).toLocaleString()}</small>}
+                {record.values.length > 0 && <span className="evidence-values">{record.values.map(({ label: valueLabel, value }) => `${valueLabel}: ${value}`).join(' | ')}</span>}
+              </li>)}
+            </ul>
+          </div>)}
+        </div>
+      </section>}
     </div>
   )
 }

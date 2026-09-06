@@ -119,36 +119,26 @@ export const mockDoctorAlerts: DoctorAlert[] = [
   },
 ]
 
-function buildOverview(items: Patient[]) {
-  if (!items.length) {
-    return { totalCases: 0, totalAssigned: 0, unassigned: 0, averageRisk: 0 }
-  }
-
-  return {
-    totalCases: items.length,
-    totalAssigned: items.filter((patient) => patient.assignedDoctorId).length,
-    unassigned: items.filter((patient) => !patient.assignedDoctorId).length,
-    averageRisk: Math.round(items.reduce((total, patient) => total + patient.riskScore, 0) / items.length),
-  }
-}
-
-function buildRiskDistribution(items: Patient[]) {
-  return [
-    { name: 'Low' as const, value: items.filter((patient) => patient.riskLevel === 'low').length },
-    { name: 'Moderate' as const, value: items.filter((patient) => patient.riskLevel === 'moderate').length },
-    { name: 'High' as const, value: items.filter((patient) => patient.riskLevel === 'high').length },
-    { name: 'Critical' as const, value: items.filter((patient) => patient.riskLevel === 'critical').length },
-  ]
-}
-
 export function getMockAdminDashboard() {
+  const adminPatients = mockPatients.map(({ id, name, assignedDoctorId }) => ({
+    id,
+    name,
+    assignedDoctorId,
+    active: true,
+  }))
+
   return {
-    metrics: mockAdminMetrics,
-    riskDistribution: buildRiskDistribution(mockPatients),
-    reviewPatients: mockPatients.filter((patient) => patient.riskLevel === 'high' || patient.riskLevel === 'critical'),
-    overview: buildOverview(mockPatients),
+    metrics: mockAdminMetrics.map((metric) => metric.label === 'High-risk pregnancies'
+      ? { ...metric, label: 'Active patient accounts', value: String(adminPatients.length), change: `${adminPatients.length} total patient accounts` }
+      : metric),
+    overview: {
+      totalCases: adminPatients.length,
+      totalAssigned: adminPatients.filter((patient) => patient.assignedDoctorId).length,
+      unassigned: adminPatients.filter((patient) => !patient.assignedDoctorId).length,
+      averageRisk: 0,
+    },
     activityLog: mockActivityLog,
-    patients: mockPatients,
+    patients: adminPatients,
   }
 }
 
