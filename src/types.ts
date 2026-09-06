@@ -1,4 +1,4 @@
-export type Role = 'admin' | 'doctor' | 'user'
+export type Role = 'admin' | 'doctor' | 'patient'
 
 export type UserSession = {
   uid: string

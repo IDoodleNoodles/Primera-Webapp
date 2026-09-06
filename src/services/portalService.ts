@@ -220,7 +220,7 @@ export async function createPatient(input: PatientInput) {
 
   const reference = await addDoc(collection(db, 'users'), {
     ...input,
-    role: 'user',
+    role: 'patient',
     createdAt: serverTimestamp(),
   })
   return { id: reference.id, ...input }
@@ -231,7 +231,7 @@ export async function updatePatient(patientId: string, input: PatientInput) {
   await updateDoc(doc(db, 'users', patientId), {
     ...input,
     // Normalize legacy records that were created without a role.
-    role: 'user',
+    role: 'patient',
   })
   return { id: patientId, ...input }
 }
@@ -361,7 +361,7 @@ export async function fetchVisiblePatients(role: 'admin' | 'doctor', userId: str
     return snapshot.docs
       .filter((patient) => {
         const userRole = patient.data().role
-        return userRole !== 'admin' && userRole !== 'doctor'
+        return userRole === 'patient'
       })
       .map((patient) => toPatient(patient.id, patient.data()))
   }

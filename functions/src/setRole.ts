@@ -6,14 +6,14 @@ if (!getApps().length) initializeApp()
 
 const auth = getAuth()
 const db = getFirestore()
-const validRoles = new Set(['admin', 'doctor', 'user'])
+const validRoles = new Set(['admin', 'doctor', 'patient'])
 
 async function main() {
   const email = process.argv[2]
   const role = process.argv[3]
 
   if (!email || !role || !validRoles.has(role)) {
-    throw new Error('Usage: npm run set-role -- <email> <admin|doctor|user>')
+    throw new Error('Usage: npm run set-role -- <email> <admin|doctor|patient>')
   }
 
   const user = await auth.getUserByEmail(email)
