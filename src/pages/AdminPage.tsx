@@ -1,4 +1,3 @@
-import { BarChart, Bar, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { useEffect, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { firebaseConfigured } from '../firebase'
@@ -17,12 +16,10 @@ import {
   updatePatient,
   updateStaffAccount,
 } from '../services/portalService'
-import type { AdminDashboardData, PatientInput, StaffAccount } from '../services/portalService'
-import type { Patient } from '../types'
+import type { AdminDashboardData, AdminPatient, PatientInput, StaffAccount } from '../services/portalService'
 
 const emptyPatient: PatientInput = {
-  name: '', assignedDoctorId: null, riskLevel: 'low', riskScore: 0, status: 'stable',
-  symptoms: 0, vitals: { heartRate: 0, oxygen: 0, bloodPressure: 0, temperature: 0 },
+  name: '', assignedDoctorId: null, active: true,
 }
 
 const emptyStaff = { name: '', email: '', password: '', role: 'doctor' as 'admin' | 'doctor' }
@@ -57,8 +54,10 @@ export function AdminPage() {
     }
 
     if (demoMode) {
-      setDashboard(getMockAdminDashboard())
-      setLoading(false)
+      Promise.resolve(getMockAdminDashboard()).then((nextDashboard) => {
+        setDashboard(nextDashboard)
+        setLoading(false)
+      })
       return
     }
 
@@ -73,7 +72,7 @@ export function AdminPage() {
 
   useEffect(() => {
     if (demoMode) {
-      setStaff(getMockStaffAccounts())
+      Promise.resolve(getMockStaffAccounts()).then(setStaff)
       return
     }
     fetchStaffAccounts().then(setStaff).catch(() => setError('Unable to load staff accounts.'))
@@ -103,7 +102,7 @@ export function AdminPage() {
     } catch (operationError) { showError(operationError) } finally { setBusy(false) }
   }
 
-  async function removePatient(patient: Patient) {
+  async function removePatient(patient: AdminPatient) {
     if (!window.confirm(`Delete ${patient.name}'s patient record?`)) return
     setBusy(true); setError('')
     try {
@@ -150,7 +149,7 @@ export function AdminPage() {
     } catch (operationError) { showError(operationError) } finally { setBusy(false) }
   }
 
-  async function unassignPatient(patient: Patient) {
+  async function unassignPatient(patient: AdminPatient) {
     setBusy(true)
     setError('')
     try {
@@ -164,9 +163,9 @@ export function AdminPage() {
     }
   }
 
-  function startPatientEdit(patient: Patient) {
+  function startPatientEdit(patient: AdminPatient) {
     setEditingPatientId(patient.id)
-    setPatientForm({ name: patient.name, assignedDoctorId: patient.assignedDoctorId, riskLevel: patient.riskLevel, riskScore: patient.riskScore, status: patient.status, symptoms: patient.symptoms, vitals: patient.vitals })
+    setPatientForm({ name: patient.name, assignedDoctorId: patient.assignedDoctorId, active: patient.active })
   }
 
   if (loading || !dashboard) {
@@ -204,13 +203,11 @@ export function AdminPage() {
         <div className="panel-heading"><div><p className="eyebrow">Patient registry</p><h3>{editingPatientId ? 'Edit patient record' : 'Add patient record'}</h3></div></div>
         <form className="admin-form" onSubmit={savePatient}>
           <label>Name<input required value={patientForm.name} onChange={(event) => setPatientForm({ ...patientForm, name: event.target.value })} /></label>
-          <label>Risk level<select value={patientForm.riskLevel} onChange={(event) => setPatientForm({ ...patientForm, riskLevel: event.target.value as PatientInput['riskLevel'] })}><option value="low">Low</option><option value="moderate">Moderate</option><option value="high">High</option><option value="critical">Critical</option></select></label>
-          <label>Risk score<input type="number" min="0" max="100" value={patientForm.riskScore} onChange={(event) => setPatientForm({ ...patientForm, riskScore: Number(event.target.value) })} /></label>
-          <label>Status<select value={patientForm.status} onChange={(event) => setPatientForm({ ...patientForm, status: event.target.value as PatientInput['status'] })}><option value="stable">Stable</option><option value="monitoring">Monitoring</option><option value="escalated">Escalated</option></select></label>
           <label>Assigned doctor<select value={patientForm.assignedDoctorId ?? ''} onChange={(event) => setPatientForm({ ...patientForm, assignedDoctorId: event.target.value || null })}><option value="">Unassigned</option>{staff.filter((account) => account.role === 'doctor' && account.active).map((doctor) => <option key={doctor.uid} value={doctor.uid}>{doctor.name}</option>)}</select></label>
+          <label>Account status<select value={patientForm.active ? 'active' : 'inactive'} onChange={(event) => setPatientForm({ ...patientForm, active: event.target.value === 'active' })}><option value="active">Active</option><option value="inactive">Inactive</option></select></label>
           <div className="form-actions"><button className="button primary" disabled={writesDisabled}>{editingPatientId ? 'Update patient' : 'Create patient'}</button>{editingPatientId && <button type="button" className="button" onClick={() => { setEditingPatientId(null); setPatientForm(emptyPatient) }}>Cancel</button>}</div>
         </form>
-        <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Patient</th><th>Risk</th><th>Status</th><th>Doctor</th><th>Actions</th></tr></thead><tbody>{dashboard.patients.map((patient) => <tr key={patient.id}><td>{patient.name}</td><td><span className={`risk-badge ${patient.riskLevel}`}>{patient.riskLevel}</span></td><td>{patient.status}</td><td>{staff.find((account) => account.uid === patient.assignedDoctorId)?.name ?? 'Unassigned'}</td><td className="table-actions"><button className="button" disabled={demoMode} onClick={() => startPatientEdit(patient)}>Edit</button><button className="button danger" disabled={demoMode} onClick={() => removePatient(patient)}>Delete</button>{patient.assignedDoctorId && <button className="button" disabled={demoMode} onClick={() => unassignPatient(patient)}>Unassign</button>}</td></tr>)}</tbody></table></div>
+        <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Patient account</th><th>Account status</th><th>Assigned doctor</th><th>Actions</th></tr></thead><tbody>{dashboard.patients.map((patient) => <tr key={patient.id}><td>{patient.name}</td><td>{patient.active ? 'Active' : 'Inactive'}</td><td>{staff.find((account) => account.uid === patient.assignedDoctorId)?.name ?? 'Unassigned'}</td><td className="table-actions"><button className="button" disabled={demoMode} onClick={() => startPatientEdit(patient)}>Edit</button><button className="button danger" disabled={demoMode} onClick={() => removePatient(patient)}>Delete</button>{patient.assignedDoctorId && <button className="button" disabled={demoMode} onClick={() => unassignPatient(patient)}>Unassign</button>}</td></tr>)}</tbody></table></div>
       </section>
       )}
 
@@ -238,37 +235,8 @@ export function AdminPage() {
         ))}
       </section>
 
-      <section className="two-column">
-        <div className="panel">
-          <h3>Risk distribution</h3>
-          <div className="chart-wrap">
-            <ResponsiveContainer width="100%" height={240}>
-              <BarChart data={dashboard.riskDistribution}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" />
-                <YAxis />
-                <Tooltip />
-                <Bar dataKey="value" fill="#0f766e" radius={[8, 8, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        <div className="panel">
-          <h3>Patients requiring review</h3>
-          <ul className="list">
-            {dashboard.reviewPatients.map((patient) => (
-                <li key={patient.id}>
-                  <span>{patient.name}</span>
-                  <strong>{patient.riskLevel}</strong>
-                </li>
-              ))}
-          </ul>
-        </div>
-      </section>
-
       <section className="panel">
-        <h3>Operational summary</h3>
+        <h3>Account and coverage summary</h3>
         <div className="summary-grid">
           <div>
             <span>Total cases</span>
@@ -283,8 +251,8 @@ export function AdminPage() {
             <strong>{dashboard.overview.unassigned}</strong>
           </div>
           <div>
-            <span>Avg risk score</span>
-            <strong>{dashboard.overview.averageRisk}</strong>
+            <span>Clinical details</span>
+            <strong>Doctor only</strong>
           </div>
         </div>
       </section>
@@ -294,7 +262,7 @@ export function AdminPage() {
       {section === 'assignments' && (
       <section className="panel">
         <div className="panel-heading"><div><p className="eyebrow">Assignments</p><h3>Doctor-to-patient coverage</h3></div></div>
-        <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Patient</th><th>Risk</th><th>Doctor</th><th>Actions</th></tr></thead><tbody>{dashboard.patients.map((patient) => <tr key={patient.id}><td>{patient.name}</td><td><span className={`risk-badge ${patient.riskLevel}`}>{patient.riskLevel}</span></td><td>{staff.find((account) => account.uid === patient.assignedDoctorId)?.name ?? 'Unassigned'}</td><td className="table-actions">{patient.assignedDoctorId && <button className="button" disabled={demoMode} onClick={() => unassignPatient(patient)}>Unassign</button>}</td></tr>)}</tbody></table></div>
+        <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Patient account</th><th>Doctor</th><th>Actions</th></tr></thead><tbody>{dashboard.patients.map((patient) => <tr key={patient.id}><td>{patient.name}</td><td>{staff.find((account) => account.uid === patient.assignedDoctorId)?.name ?? 'Unassigned'}</td><td className="table-actions">{patient.assignedDoctorId && <button className="button" disabled={demoMode} onClick={() => unassignPatient(patient)}>Unassign</button>}</td></tr>)}</tbody></table></div>
       </section>
       )}
 

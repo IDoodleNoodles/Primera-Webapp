@@ -1,4 +1,4 @@
-import type { AuditLog, DashboardMetric, DoctorAlert, Patient } from '../types'
+import type { AuditLog, ClinicalEvidenceRecord, DashboardMetric, DoctorAlert, Patient, PatientClinicalEvidence } from '../types'
 import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, limit, orderBy, query, serverTimestamp, setDoc, updateDoc, where } from 'firebase/firestore'
 import { db, firebaseConfigured } from '../firebase'
 import { getFunctions, httpsCallable } from 'firebase/functions'
@@ -12,7 +12,14 @@ export type StaffAccount = {
   specialty?: string
 }
 
-export type PatientInput = Omit<Patient, 'id' | 'lastCheckIn' | 'alertCount' | 'unreadNotes'>
+export type AdminPatient = {
+  id: string
+  name: string
+  assignedDoctorId: string | null
+  active: boolean
+}
+
+export type PatientInput = Pick<AdminPatient, 'name' | 'assignedDoctorId' | 'active'>
 
 type AdminOverview = {
   totalCases: number
@@ -21,18 +28,11 @@ type AdminOverview = {
   averageRisk: number
 }
 
-type RiskDistributionPoint = {
-  name: 'Low' | 'Moderate' | 'High' | 'Critical'
-  value: number
-}
-
 export type AdminDashboardData = {
   metrics: DashboardMetric[]
-  riskDistribution: RiskDistributionPoint[]
-  reviewPatients: Patient[]
   overview: AdminOverview
   activityLog: AuditLog[]
-  patients: Patient[]
+  patients: AdminPatient[]
 }
 
 type DoctorOverview = {
@@ -71,15 +71,6 @@ function buildOverview(items: Patient[]): AdminOverview {
   }
 }
 
-function buildRiskDistribution(items: Patient[]): RiskDistributionPoint[] {
-  return [
-    { name: 'Low', value: items.filter((patient) => patient.riskLevel === 'low').length },
-    { name: 'Moderate', value: items.filter((patient) => patient.riskLevel === 'moderate').length },
-    { name: 'High', value: items.filter((patient) => patient.riskLevel === 'high').length },
-    { name: 'Critical', value: items.filter((patient) => patient.riskLevel === 'critical').length },
-  ]
-}
-
 function toIsoTimestamp(value: unknown): string {
   if (typeof value === 'string') return value
   if (value && typeof value === 'object' && 'toDate' in value && typeof value.toDate === 'function') {
@@ -87,6 +78,100 @@ function toIsoTimestamp(value: unknown): string {
   }
 
   return ''
+}
+
+function firstString(data: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    if (typeof data[key] === 'string' && data[key].trim()) return data[key].trim()
+  }
+  return ''
+}
+
+function firstNumber(data: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = data[key]
+    if (typeof value === 'number' && Number.isFinite(value)) return value
+    if (typeof value === 'string' && value.trim() && Number.isFinite(Number(value))) return Number(value)
+  }
+  return null
+}
+
+function toClinicalEvidenceRecord(id: string, data: Record<string, unknown>): ClinicalEvidenceRecord {
+  const timestamp = toIsoTimestamp(data.timestamp ?? data.createdAt ?? data.recordedAt ?? data.date)
+  const excludedKeys = new Set(['timestamp', 'createdAt', 'recordedAt', 'date', 'userId'])
+  const values = Object.entries(data)
+    .filter(([key, value]) => !excludedKeys.has(key) && ['string', 'number', 'boolean'].includes(typeof value))
+    .slice(0, 6)
+    .map(([label, value]) => ({ label, value: String(value) }))
+
+  return {
+    id,
+    timestamp,
+    title: firstString(data, ['title', 'type', 'name', 'status']) || 'Patient record',
+    summary: firstString(data, ['summary', 'symptoms', 'text', 'transcription', 'content', 'description', 'notes']) || 'No narrative details recorded.',
+    values,
+  }
+}
+
+function sortEvidence(records: ClinicalEvidenceRecord[]) {
+  return records.sort((left, right) => right.timestamp.localeCompare(left.timestamp))
+}
+
+function buildScreeningSignal(records: ClinicalEvidenceRecord[]): PatientClinicalEvidence['screeningSignal'] {
+  const latest = records[0]
+  if (!latest) return { score: null, level: null, reasons: [] }
+
+  const rawValues = Object.fromEntries(latest.values.map(({ label, value }) => [label, value]))
+  const heartRate = firstNumber(rawValues, ['heartRate', 'heart_rate', 'heart rate', 'restingHeartRate', 'pulse'])
+  const oxygen = firstNumber(rawValues, ['oxygen', 'oxygenSaturation', 'oxygen_saturation', 'spo2', 'SpO2'])
+  const scoreParts: Array<{ points: number; reason: string }> = []
+  if (heartRate !== null && heartRate >= 100) scoreParts.push({ points: 25, reason: `Heart rate ${heartRate} bpm is elevated.` })
+  if (oxygen !== null && oxygen > 0 && oxygen < 95) scoreParts.push({ points: 35, reason: `Oxygen saturation ${oxygen}% is below 95%.` })
+  if (!scoreParts.length) return { score: 0, level: 'low', reasons: ['No threshold signals found in the latest smartwatch record.'] }
+
+  const score = Math.min(100, scoreParts.reduce((total, part) => total + part.points, 0))
+  return {
+    score,
+    level: score >= 60 ? 'high' : score >= 25 ? 'moderate' : 'low',
+    reasons: scoreParts.map((part) => part.reason),
+  }
+}
+
+export async function fetchPatientClinicalEvidence(doctorId: string, patientId: string): Promise<PatientClinicalEvidence> {
+  const empty: PatientClinicalEvidence = {
+    checkins: [],
+    transcriptions: [],
+    goals: [],
+    smartwatchHealthRecords: [],
+    screeningSignal: { score: null, level: null, reasons: [] },
+  }
+  if (!db) return empty
+
+  const patient = await fetchPatientByIdForDoctor(doctorId, patientId)
+  if (!patient) return empty
+
+  const firestore = db
+  const loadPatientCollection = (name: 'checkins' | 'transcriptions' | 'goals') => loadQueryDocs(() => getDocs(query(
+    collection(firestore, name),
+    where('userId', '==', patientId),
+    limit(20),
+  )))
+
+  const [checkins, transcriptions, goals, smartwatch] = await Promise.all([
+    loadPatientCollection('checkins'),
+    loadPatientCollection('transcriptions'),
+    loadPatientCollection('goals'),
+    loadQueryDocs(() => getDocs(collection(firestore, 'users', patientId, 'smartwatchHealthRecords'))),
+  ])
+
+  const evidence = {
+    checkins: sortEvidence(checkins.map((entry) => toClinicalEvidenceRecord(entry.id, entry.data()))),
+    transcriptions: sortEvidence(transcriptions.map((entry) => toClinicalEvidenceRecord(entry.id, entry.data()))),
+    goals: sortEvidence(goals.map((entry) => toClinicalEvidenceRecord(entry.id, entry.data()))),
+    smartwatchHealthRecords: sortEvidence(smartwatch.map((entry) => toClinicalEvidenceRecord(entry.id, entry.data()))),
+  }
+
+  return { ...evidence, screeningSignal: buildScreeningSignal(evidence.smartwatchHealthRecords) }
 }
 
 function normalizeTargetType(value: unknown): AuditLog['targetType'] {
@@ -105,8 +190,6 @@ export function getEmptyAdminDashboard(): AdminDashboardData {
       { label: 'Unassigned cases', value: '0', change: 'Patients without assigned doctor' },
       { label: 'Alerts resolved', value: '0%', change: '0 of 0 alerts' },
     ],
-    riskDistribution: buildRiskDistribution([]),
-    reviewPatients: [],
     overview: buildOverview([]),
     activityLog: [],
     patients: [],
@@ -128,22 +211,8 @@ export function getEmptyDoctorDashboard(): DoctorDashboardData {
 }
 
 export async function fetchStaffAccounts(): Promise<StaffAccount[]> {
-  if (!db) return []
-
-  const snapshot = await getDocs(query(collection(db, 'users'), where('role', 'in', ['admin', 'doctor'])))
-  return snapshot.docs
-    .map((entry) => {
-    const data = entry.data()
-    return {
-      uid: entry.id,
-      name: typeof data.name === 'string' ? data.name : 'Unnamed staff member',
-      email: typeof data.email === 'string' ? data.email : '',
-      role: (data.role === 'doctor' ? 'doctor' : 'admin') as 'admin' | 'doctor',
-      active: data.active !== false,
-      specialty: typeof data.specialty === 'string' ? data.specialty : undefined,
-    }
-    })
-    .filter((account) => account.role !== 'admin')
+  if (!firebaseConfigured) return []
+  return callAdminFunction<StaffAccount[]>('fetchAdminStaffDirectory', {})
 }
 
 export async function createPatient(input: PatientInput) {
@@ -152,12 +221,9 @@ export async function createPatient(input: PatientInput) {
   const reference = await addDoc(collection(db, 'users'), {
     ...input,
     role: 'user',
-    lastCheckIn: serverTimestamp(),
-    alertCount: 0,
-    unreadNotes: 0,
     createdAt: serverTimestamp(),
   })
-  return { id: reference.id, ...input, lastCheckIn: '', alertCount: 0, unreadNotes: 0 }
+  return { id: reference.id, ...input }
 }
 
 export async function updatePatient(patientId: string, input: PatientInput) {
@@ -167,7 +233,7 @@ export async function updatePatient(patientId: string, input: PatientInput) {
     // Normalize legacy records that were created without a role.
     role: 'user',
   })
-  return { id: patientId, ...input, lastCheckIn: '', alertCount: 0, unreadNotes: 0 }
+  return { id: patientId, ...input }
 }
 
 export async function deletePatient(patientId: string) {
@@ -222,6 +288,10 @@ export function deleteStaffAccount(uid: string) {
 
 export function setStaffAccountStatus(uid: string, active: boolean) {
   return callAdminFunction<{ uid: string; active: boolean }>('setStaffAccountStatus', { uid, active })
+}
+
+export function fetchAdminPatientDirectory() {
+  return callAdminFunction<AdminPatient[]>('fetchAdminPatientDirectory', {})
 }
 
 type FirestorePatient = Partial<Patient> & {
@@ -339,48 +409,24 @@ export async function fetchVisiblePatients(role: 'admin' | 'doctor', userId: str
 export async function fetchAdminDashboardData(userId: string): Promise<AdminDashboardData> {
   if (!db) return getEmptyAdminDashboard()
 
+  void userId
   const firestore = db
-  const visiblePatients = await fetchVisiblePatients('admin', userId)
+  const visiblePatients = await fetchAdminPatientDirectory()
 
-  const [doctorSnapshot, alertSnapshot, auditSnapshot] = await Promise.all([
+  const [doctorSnapshot, auditSnapshot] = await Promise.all([
     getDocs(collection(firestore, 'doctors')),
-    getDocs(collection(firestore, 'alerts')),
     getDocs(query(collection(firestore, 'auditLogs'), orderBy('timestamp', 'desc'), limit(8))),
   ])
 
   const activeDoctors = doctorSnapshot.docs.filter((doctor) => doctor.data().active !== false).length
-  const highRiskCases = visiblePatients.filter(
-    (patient) => patient.riskLevel === 'high' || patient.riskLevel === 'critical',
-  ).length
   const unassignedCases = visiblePatients.filter((patient) => !patient.assignedDoctorId).length
 
-  const alerts = alertSnapshot.docs.map((alert) => alert.data())
-  const resolvedAlerts = alerts.filter((alert) => {
-    if (typeof alert.resolved === 'boolean') return alert.resolved
-    if (typeof alert.status === 'string') return alert.status.toLowerCase() === 'resolved'
-    return Boolean(alert.resolvedAt)
-  }).length
-
-  const resolvedPercent = alerts.length ? Math.round((resolvedAlerts / alerts.length) * 100) : 0
-  const overview = buildOverview(visiblePatients)
-  const riskDistribution = buildRiskDistribution(visiblePatients)
-
-  const actorIds = Array.from(new Set(
-    auditSnapshot.docs
-      .map((entry) => entry.data().actorId)
-      .filter((actorId): actorId is string => typeof actorId === 'string' && actorId.length > 0),
-  ))
-
-  const actorNames = new Map<string, string>()
-  await Promise.all(
-    actorIds.map(async (actorId) => {
-      const actorProfile = await getDoc(doc(firestore, 'users', actorId))
-      const actorName = actorProfile.data()?.name
-      if (typeof actorName === 'string' && actorName.trim()) {
-        actorNames.set(actorId, actorName)
-      }
-    }),
-  )
+  const overview = {
+    totalCases: visiblePatients.length,
+    totalAssigned: visiblePatients.length - unassignedCases,
+    unassigned: unassignedCases,
+    averageRisk: 0,
+  }
 
   const metrics: DashboardMetric[] = [
     {
@@ -389,9 +435,9 @@ export async function fetchAdminDashboardData(userId: string): Promise<AdminDash
       change: `${doctorSnapshot.size} total doctor accounts`,
     },
     {
-      label: 'High-risk pregnancies',
-      value: String(highRiskCases),
-      change: 'High and critical risk levels',
+      label: 'Active patient accounts',
+      value: String(visiblePatients.filter((patient) => patient.active).length),
+      change: `${visiblePatients.length} total patient accounts`,
     },
     {
       label: 'Unassigned cases',
@@ -399,9 +445,9 @@ export async function fetchAdminDashboardData(userId: string): Promise<AdminDash
       change: 'Patients without assigned doctor',
     },
     {
-      label: 'Alerts resolved',
-      value: `${resolvedPercent}%`,
-      change: `${resolvedAlerts} of ${alerts.length} alerts`,
+      label: 'Clinical alerts',
+      value: 'Doctor only',
+      change: 'Clinical queue is restricted to assigned clinicians',
     },
   ]
 
@@ -410,7 +456,7 @@ export async function fetchAdminDashboardData(userId: string): Promise<AdminDash
     const actorId = typeof data.actorId === 'string' ? data.actorId : ''
     const actorName = typeof data.actorName === 'string' && data.actorName.trim()
       ? data.actorName
-      : (actorNames.get(actorId) ?? 'Portal user')
+      : 'Portal user'
 
     return {
       id: entry.id,
@@ -425,10 +471,6 @@ export async function fetchAdminDashboardData(userId: string): Promise<AdminDash
 
   return {
     metrics,
-    riskDistribution,
-    reviewPatients: visiblePatients
-      .filter((patient) => patient.riskLevel === 'high' || patient.riskLevel === 'critical')
-      .sort((left, right) => right.riskScore - left.riskScore),
     overview,
     activityLog: logs,
     patients: visiblePatients,
@@ -532,6 +574,11 @@ export async function updatePatientForDoctor(doctorId: string, patientId: string
     symptoms: input.symptoms,
     vitals: input.vitals,
     updatedAt: serverTimestamp(),
+  })
+  await callAdminFunction<{ success: boolean }>('writeAuditLog', {
+    action: 'Updated clinical snapshot',
+    targetId: patientId,
+    targetType: 'patient',
   })
 }
 

@@ -9,6 +9,13 @@ const auth = getAuth()
 const db = getFirestore()
 const allowedRoles = new Set(['admin', 'doctor'])
 
+type AdminPatient = {
+  id: string
+  name: string
+  assignedDoctorId: string | null
+  active: boolean
+}
+
 function requireAdmin(request: { auth?: { token?: Record<string, unknown> } }) {
   if (request.auth?.token?.role !== 'admin') {
     throw new HttpsError('permission-denied', 'Only administrators can manage portal accounts.')
@@ -63,6 +70,38 @@ export const createStaffAccount = onCall(async (request) => {
       : 'internal'
     throw new HttpsError(code, 'Unable to create the staff account.')
   }
+})
+
+export const fetchAdminPatientDirectory = onCall(async (request) => {
+  requireAdmin(request)
+
+  const snapshot = await db.collection('users').get()
+  return snapshot.docs
+    .filter((entry) => {
+      const role = entry.data().role
+      return role !== 'admin' && role !== 'doctor'
+    })
+    .map((entry): AdminPatient => ({
+      id: entry.id,
+      name: typeof entry.data().name === 'string' ? entry.data().name : 'Unnamed patient',
+      assignedDoctorId: typeof entry.data().assignedDoctorId === 'string' ? entry.data().assignedDoctorId : null,
+      active: entry.data().active !== false,
+    }))
+})
+
+export const fetchAdminStaffDirectory = onCall(async (request) => {
+  requireAdmin(request)
+
+  const snapshot = await db.collection('users').get()
+  return snapshot.docs
+    .filter((entry) => entry.data().role === 'doctor')
+    .map((entry) => ({
+      uid: entry.id,
+      name: typeof entry.data().name === 'string' ? entry.data().name : 'Unnamed staff member',
+      email: typeof entry.data().email === 'string' ? entry.data().email : '',
+      role: 'doctor' as const,
+      active: entry.data().active !== false,
+    }))
 })
 
 export const setStaffAccountStatus = onCall(async (request) => {

@@ -26,6 +26,26 @@ export type Patient = {
   unreadNotes: number
 }
 
+export type ClinicalEvidenceRecord = {
+  id: string
+  timestamp: string
+  title: string
+  summary: string
+  values: Array<{ label: string; value: string }>
+}
+
+export type PatientClinicalEvidence = {
+  checkins: ClinicalEvidenceRecord[]
+  transcriptions: ClinicalEvidenceRecord[]
+  goals: ClinicalEvidenceRecord[]
+  smartwatchHealthRecords: ClinicalEvidenceRecord[]
+  screeningSignal: {
+    score: number | null
+    level: Patient['riskLevel'] | null
+    reasons: string[]
+  }
+}
+
 export type AuditLog = {
   id: string
   actorId: string
