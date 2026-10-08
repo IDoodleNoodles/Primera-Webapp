@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { firebaseConfigured } from '../firebase'
-import { getMockDoctorAlerts, getMockPatientForDoctor } from '../data/mockPortalData'
+import { getMockDoctorAlerts, getMockPatientClinicalEvidence, getMockPatientForDoctor } from '../data/mockPortalData'
 import {
   createDoctorAlert,
   deleteDoctorAlert,
@@ -15,6 +15,13 @@ import { useAuth } from '../context/AuthContext'
 import type { DoctorAlert, Patient, PatientClinicalEvidence } from '../types'
 
 const emptyAlert = { title: '', details: '', status: 'active' as 'active' | 'resolved' }
+
+function reviewLabel(patient: Patient) {
+  if (patient.alertCount > 0) return `${patient.alertCount} alert${patient.alertCount === 1 ? '' : 's'}`
+  if (patient.unreadNotes > 0) return 'Unread record'
+  if (patient.status === 'escalated') return 'Follow-up indicated'
+  return 'No review items'
+}
 
 export function PatientDetailPage() {
   const { patientId } = useParams()
@@ -49,7 +56,7 @@ export function PatientDetailPage() {
           vitals: result.vitals,
         } : null)
         setAlerts(getMockDoctorAlerts(user.uid, patientId))
-        setEvidence(null)
+        setEvidence(result ? getMockPatientClinicalEvidence(user.uid, patientId) : null)
         setLoading(false)
       })
       return
@@ -174,6 +181,10 @@ export function PatientDetailPage() {
     })
   }
 
+  function recordValue(record: PatientClinicalEvidence['checkins'][number], label: string) {
+    return record.values.find((value) => value.label.toLowerCase() === label.toLowerCase())?.value ?? 'Not recorded'
+  }
+
   if (loading) {
     return (
       <div className="page">
@@ -203,12 +214,32 @@ export function PatientDetailPage() {
         <div>
           <p className="eyebrow">Patient detail</p>
           <h2>{patient.name}</h2>
+          <p className="muted">Assigned patient record · Last check-in {patient.lastCheckIn ? new Date(patient.lastCheckIn).toLocaleDateString() : 'not recorded'}</p>
         </div>
       </header>
 
       {demoMode && <p className="form-message">Prototype data is shown because Firebase is not configured. Writes are disabled.</p>}
       {message && <p className="form-message">{message}</p>}
       {error && <p className="form-error">{error}</p>}
+
+      <section className="summary-grid patient-overview">
+        <div><span>Pregnancy progress</span><strong>{patient.pregnancyWeek ? `${patient.pregnancyWeek} weeks` : 'Not recorded'}</strong><small>{patient.trimester ?? 'Trimester not recorded'}</small></div>
+        <div><span>Last check-in</span><strong>{patient.lastCheckIn ? new Date(patient.lastCheckIn).toLocaleDateString() : 'Not recorded'}</strong><small>{patient.status}</small></div>
+        <div><span>Latest sync</span><strong>{evidence?.smartwatchHealthRecords[0]?.timestamp ? new Date(evidence.smartwatchHealthRecords[0].timestamp).toLocaleDateString() : 'Not available'}</strong><small>Health Connect / wearable</small></div>
+        <div><span>Review status</span><strong>{reviewLabel(patient)}</strong><small>{patient.riskLevel} risk profile</small></div>
+      </section>
+
+      {(alerts.some((alert) => alert.status === 'active') || patient.status === 'escalated' || patient.unreadNotes > 0) && (
+        <section className="attention-panel">
+          <p className="eyebrow">Needs attention</p>
+          <h3>Review relevant signals before the next visit</h3>
+          <ul className="attention-list">
+            {alerts.filter((alert) => alert.status === 'active').map((alert) => <li key={alert.id}><strong>{alert.title}</strong><span>{alert.details || 'Clinical alert requires review.'}</span></li>)}
+            {patient.status === 'escalated' && <li><strong>Escalated risk profile</strong><span>Risk score {patient.riskScore} requires clinician follow-up.</span></li>}
+            {patient.unreadNotes > 0 && <li><strong>{patient.unreadNotes} unread patient note{patient.unreadNotes === 1 ? '' : 's'}</strong><span>Review recent patient-reported information.</span></li>}
+          </ul>
+        </section>
+      )}
 
       <section className="detail-grid">
         <div className="panel">
@@ -268,10 +299,18 @@ export function PatientDetailPage() {
       {evidence && <section className="panel evidence-panel">
         <div className="panel-heading">
           <div>
-            <p className="eyebrow">Connected patient data</p>
-            <h3>Android records</h3>
+            <p className="eyebrow">Patient-reported and connected data</p>
+            <h3>Recent check-ins</h3>
           </div>
-          <span className="muted">Read-only clinical context</span>
+          <span className="muted">Read-only clinical context · synced {evidence.smartwatchHealthRecords[0]?.timestamp ? new Date(evidence.smartwatchHealthRecords[0].timestamp).toLocaleDateString() : 'not yet'}</span>
+        </div>
+        <div className="checkin-grid">
+          {evidence.checkins.slice(0, 3).map((record) => <article className="checkin-card" key={record.id}>
+            <div className="panel-heading"><strong>{record.title}</strong><small>{record.timestamp ? new Date(record.timestamp).toLocaleDateString() : 'Date not recorded'}</small></div>
+            <p>{record.summary}</p>
+            <div className="checkin-meta"><span>Mood: {recordValue(record, 'Mood')}</span><span>Medication: {recordValue(record, 'Medication')}</span><span>Sleep: {recordValue(record, 'Sleep')}</span></div>
+          </article>)}
+          {!evidence.checkins.length && <p className="muted">No patient check-ins have been synced.</p>}
         </div>
         <div className="evidence-summary">
           <div>
@@ -292,6 +331,13 @@ export function PatientDetailPage() {
           </div>
         </div>
         {evidence.screeningSignal.reasons.length > 0 && <p className="evidence-note"><strong>{evidence.screeningSignal.level} signal:</strong> {evidence.screeningSignal.reasons.join(' ')}</p>}
+        <div className="trend-grid">
+          <div><span>Heart rate</span><strong>{evidence.smartwatchHealthRecords[0] ? recordValue(evidence.smartwatchHealthRecords[0], 'Heart rate') : 'Not available'}</strong><small>Latest wearable reading</small></div>
+          <div><span>Activity</span><strong>{evidence.smartwatchHealthRecords[0] ? recordValue(evidence.smartwatchHealthRecords[0], 'Steps') : 'Not available'}</strong><small>Latest daily steps</small></div>
+          <div><span>Sleep quality</span><strong>{evidence.smartwatchHealthRecords[0] ? recordValue(evidence.smartwatchHealthRecords[0], 'Sleep') : 'Not available'}</strong><small>Latest synced sleep</small></div>
+        </div>
+        <details className="history-disclosure">
+          <summary>View health, symptom, and wellness history</summary>
         <div className="evidence-columns">
           {([
             ['Check-ins', evidence.checkins],
@@ -311,6 +357,7 @@ export function PatientDetailPage() {
             </ul>
           </div>)}
         </div>
+        </details>
       </section>}
     </div>
   )

@@ -1,6 +1,6 @@
 import { ArrowUpRight } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { firebaseConfigured } from '../firebase'
 import { useAuth } from '../context/AuthContext'
 import { getMockDoctorAlerts, getMockDoctorDashboard } from '../data/mockPortalData'
@@ -41,6 +41,8 @@ export function DoctorPage() {
   const [alerts, setAlerts] = useState<DoctorAlert[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [search, setSearch] = useState('')
+  const [reviewFilter, setReviewFilter] = useState<'all' | 'needs-review' | 'no-review'>('all')
 
   useEffect(() => {
     if (!user || user.role !== 'doctor') {
@@ -73,6 +75,16 @@ export function DoctorPage() {
       })
       .finally(() => setLoading(false))
   }, [user, demoMode])
+
+  const filteredPatients = useMemo(() => {
+    const normalizedSearch = search.trim().toLowerCase()
+    return (dashboard?.assignedPatients ?? []).filter((patient) => {
+      const matchesSearch = !normalizedSearch || patient.name.toLowerCase().includes(normalizedSearch)
+      const needsReview = patient.alertCount > 0 || patient.unreadNotes > 0 || patient.status === 'escalated'
+      const matchesReview = reviewFilter === 'all' || (reviewFilter === 'needs-review' ? needsReview : !needsReview)
+      return matchesSearch && matchesReview
+    })
+  }, [dashboard?.assignedPatients, reviewFilter, search])
 
   if (loading || !dashboard) {
     return (
@@ -184,8 +196,30 @@ export function DoctorPage() {
             </section>
           ) : null}
 
-          <section className="patient-grid">
-            {dashboard.assignedPatients.map((patient) => (
+          <section className="panel patient-directory">
+            <div className="panel-heading">
+              <div>
+                <p className="eyebrow">Patient directory</p>
+                <h3>Find an assigned patient</h3>
+              </div>
+              <span className="muted">{filteredPatients.length} of {dashboard.assignedPatients.length} shown</span>
+            </div>
+            <div className="directory-filters">
+              <label className="search-field">
+                <span className="sr-only">Search assigned patients</span>
+                <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search by patient name" />
+              </label>
+              <label>
+                <span className="sr-only">Filter patient review status</span>
+                <select value={reviewFilter} onChange={(event) => setReviewFilter(event.target.value as typeof reviewFilter)}>
+                  <option value="all">All patients</option>
+                  <option value="needs-review">Needs review</option>
+                  <option value="no-review">No review items</option>
+                </select>
+              </label>
+            </div>
+            <div className="patient-grid">
+            {filteredPatients.map((patient) => (
               <Link key={patient.id} to={`/doctor/patients/${patient.id}`} className="patient-card">
                 <div className="patient-card-top">
                   <div>
@@ -204,10 +238,12 @@ export function DoctorPage() {
 
                 <div className="patient-card-footer">
                   <span>Last check-in: {formatCheckIn(patient.lastCheckIn)}</span>
-                  <ArrowUpRight size={16} />
+                  <span className="open-patient-action">Open patient <ArrowUpRight size={16} /></span>
                 </div>
               </Link>
             ))}
+            {!filteredPatients.length && <p className="muted">No assigned patients match this search or filter.</p>}
+            </div>
           </section>
         </>
       )}

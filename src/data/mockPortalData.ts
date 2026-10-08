@@ -1,4 +1,4 @@
-import type { AuditLog, DashboardMetric, DoctorAlert, Patient } from '../types'
+import type { AuditLog, ClinicalEvidenceRecord, DashboardMetric, DoctorAlert, Patient, PatientClinicalEvidence } from '../types'
 
 export const mockDoctors = [
   { id: 'doctor-1', name: 'Dr. Patel', specialty: 'Maternal-Fetal Medicine' },
@@ -255,4 +255,25 @@ export function getMockPatientForDoctor(doctorId: string, patientId: string) {
 export function getMockDoctorAlerts(doctorId: string, patientId?: string) {
   const assignedIds = new Set(getMockAssignedPatients(doctorId).map((patient) => patient.id))
   return mockDoctorAlerts.filter((alert) => assignedIds.has(alert.patientId) && (!patientId || alert.patientId === patientId))
+}
+
+export function getMockPatientClinicalEvidence(doctorId: string, patientId: string): PatientClinicalEvidence {
+  const patient = getMockPatientForDoctor(doctorId, patientId)
+  if (!patient) return { checkins: [], transcriptions: [], goals: [], smartwatchHealthRecords: [], screeningSignal: { score: null, level: null, reasons: [] } }
+
+  const checkins: ClinicalEvidenceRecord[] = [
+    { id: `${patient.id}-checkin-1`, timestamp: patient.lastCheckIn, title: 'Daily check-in', summary: 'Mild fatigue and occasional lower-back discomfort. Mood is steady; medication taken as scheduled.', values: [{ label: 'Mood', value: 'Steady' }, { label: 'Sleep', value: '6h 45m' }, { label: 'Medication', value: 'Taken' }] },
+    { id: `${patient.id}-checkin-2`, timestamp: '2026-08-17T08:10:00Z', title: 'Daily check-in', summary: 'Reported good appetite with recurring fatigue after activity.', values: [{ label: 'Mood', value: 'Good' }, { label: 'Sleep', value: '7h 10m' }, { label: 'Medication', value: 'Taken' }] },
+  ]
+  const smartwatchHealthRecords: ClinicalEvidenceRecord[] = [
+    { id: `${patient.id}-health-1`, timestamp: patient.lastCheckIn, title: 'Health Connect sync', summary: 'Latest wearable and activity summary.', values: [{ label: 'Heart rate', value: `${patient.vitals.heartRate} bpm` }, { label: 'Steps', value: '6,240' }, { label: 'Sleep', value: '6h 45m' }] },
+    { id: `${patient.id}-health-2`, timestamp: '2026-08-17T08:00:00Z', title: 'Health Connect sync', summary: 'Previous wearable and activity summary.', values: [{ label: 'Heart rate', value: `${Math.max(60, patient.vitals.heartRate - 3)} bpm` }, { label: 'Steps', value: '7,105' }, { label: 'Sleep', value: '7h 10m' }] },
+  ]
+  return {
+    checkins,
+    transcriptions: [],
+    goals: [{ id: `${patient.id}-goal-1`, timestamp: patient.lastCheckIn, title: 'Wellness goal', summary: 'Daily movement goal', values: [{ label: 'Progress', value: 'In progress' }] }],
+    smartwatchHealthRecords,
+    screeningSignal: patient.alertCount ? { score: patient.riskScore, level: patient.riskLevel, reasons: ['Review the patient-reported symptoms and latest connected health data.'] } : { score: 0, level: 'low', reasons: [] },
+  }
 }
