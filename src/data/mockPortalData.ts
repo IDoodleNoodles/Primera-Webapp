@@ -1,4 +1,4 @@
-import type { AuditLog, ClinicalEvidenceRecord, DashboardMetric, DoctorAlert, Patient, PatientClinicalEvidence } from '../types'
+import type { AuditLog, ClinicalEvidenceRecord, DashboardMetric, DoctorAlert, DoctorLinkRequest, Patient, PatientClinicalEvidence } from '../types'
 
 export const mockDoctors = [
   { id: 'doctor-1', name: 'Dr. Patel', specialty: 'Maternal-Fetal Medicine' },
@@ -180,6 +180,17 @@ export const mockDoctorAlerts: DoctorAlert[] = [
   },
 ]
 
+export const mockDoctorLinkRequests: DoctorLinkRequest[] = [
+  {
+    id: 'request-1',
+    patientId: 'patient-7',
+    patientName: 'Grace Okafor',
+    doctorId: 'doctor-1',
+    status: 'pending',
+    createdAt: '2026-08-21T09:30:00Z',
+  },
+]
+
 export function getMockAdminDashboard() {
   const adminPatients = mockPatients.map(({ id, name, assignedDoctorId }) => ({
     id,
@@ -245,6 +256,7 @@ export function getMockDoctorDashboard(doctorId: string) {
       activeAlerts,
       recentCheckIns,
     },
+    linkRequests: mockDoctorLinkRequests.filter((request) => request.doctorId === doctorId && request.status === 'pending'),
   }
 }
 

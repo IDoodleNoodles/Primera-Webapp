@@ -74,3 +74,12 @@ export type DoctorAlert = {
   status: 'active' | 'resolved'
   createdAt: string
 }
+
+export type DoctorLinkRequest = {
+  id: string
+  patientId: string
+  patientName: string
+  doctorId: string
+  status: 'pending' | 'accepted' | 'declined' | 'cancelled'
+  createdAt: string
+}

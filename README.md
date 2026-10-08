@@ -23,6 +23,18 @@ Pregnancy care often depends on fragmented data from check-ins, wearable devices
 - role-based access for admins, doctors, and patients
 - clinical dashboards for assigned patient review and oversight
 
+## Patient-doctor linking workflow
+
+Primera uses a hybrid linking model:
+
+- A patient can use the mobile app without a participating doctor and continue relying on the printable maternal health summary.
+- A patient can request a link to a participating doctor. The request is stored as `doctorLinkRequests/{requestId}` and remains pending until that doctor accepts or declines it.
+- Accepting a request creates the assignment, updates the patient profile, and adds the patient to the doctor's assigned-patient queue.
+- Admins can assign, reassign, or unassign patients immediately from the Patient Registry and Assignments pages. These administrative actions override the request path and are recorded as the active assignment.
+- Only accepted or administratively assigned patients appear in Doctor Assigned Patients and can be opened in Patient Details.
+
+The doctor response is handled by the `respondToDoctorLinkRequest` callable function so the request decision and assignment records are updated together. Firestore rules allow patients to create and view their own requests, doctors to view requests addressed to them, and admins to manage the operational registry.
+
 ## Architecture
 
 This repository contains the web-side clinical layer for the Primera platform.

@@ -198,6 +198,56 @@ export const deletePatientAccount = onCall(async (request) => {
   return { id: data.patientId }
 })
 
+export const respondToDoctorLinkRequest = onCall(async (request) => {
+  if (request.auth?.token?.role !== 'doctor') {
+    throw new HttpsError('permission-denied', 'Only participating doctors can respond to link requests.')
+  }
+
+  const data = request.data as { requestId?: string; decision?: string }
+  if (!data.requestId || (data.decision !== 'accept' && data.decision !== 'decline')) {
+    throw new HttpsError('invalid-argument', 'requestId and an accept or decline decision are required.')
+  }
+
+  const requestRef = db.doc(`doctorLinkRequests/${data.requestId}`)
+  const requestSnapshot = await requestRef.get()
+  const linkRequest = requestSnapshot.data()
+  if (!requestSnapshot.exists || linkRequest?.doctorId !== request.auth.uid || linkRequest.status !== 'pending') {
+    throw new HttpsError('failed-precondition', 'This link request is no longer available.')
+  }
+
+  if (data.decision === 'decline') {
+    await requestRef.update({ status: 'declined', respondedAt: FieldValue.serverTimestamp() })
+    return { success: true }
+  }
+
+  const patientId = linkRequest.patientId
+  if (typeof patientId !== 'string') throw new HttpsError('invalid-argument', 'The link request has no patient.')
+  const batch = db.batch()
+  const previousAssignments = await db.collection('assignments').where('patientId', '==', patientId).get()
+  previousAssignments.docs.forEach((entry) => {
+    const previousDoctorId = entry.data().doctorId
+    batch.delete(entry.ref)
+    if (typeof previousDoctorId === 'string') {
+      batch.delete(db.doc(`doctors/${previousDoctorId}/assignedPatients/${patientId}`))
+    }
+  })
+  batch.update(db.doc(`users/${patientId}`), { assignedDoctorId: request.auth.uid, updatedAt: FieldValue.serverTimestamp() })
+  batch.set(db.doc(`assignments/${request.auth.uid}_${patientId}`), {
+    patientId,
+    doctorId: request.auth.uid,
+    source: 'patient-request',
+    assignedAt: FieldValue.serverTimestamp(),
+  })
+  batch.set(db.doc(`doctors/${request.auth.uid}/assignedPatients/${patientId}`), {
+    patientId,
+    source: 'patient-request',
+    assignedAt: FieldValue.serverTimestamp(),
+  }, { merge: true })
+  batch.update(requestRef, { status: 'accepted', respondedAt: FieldValue.serverTimestamp() })
+  await batch.commit()
+  return { success: true }
+})
+
 export const resetStaffPassword = onCall(async (request) => {
   requireAdmin(request)
 

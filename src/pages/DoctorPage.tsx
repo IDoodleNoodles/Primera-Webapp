@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { firebaseConfigured } from '../firebase'
 import { useAuth } from '../context/AuthContext'
 import { getMockDoctorAlerts, getMockDoctorDashboard } from '../data/mockPortalData'
-import { fetchDoctorAlerts, fetchDoctorDashboardData, getEmptyDoctorDashboard } from '../services/portalService'
+import { fetchDoctorAlerts, fetchDoctorDashboardData, getEmptyDoctorDashboard, respondToDoctorLinkRequest } from '../services/portalService'
 import type { DoctorDashboardData } from '../services/portalService'
 import type { DoctorAlert, Patient } from '../types'
 
@@ -49,6 +49,7 @@ export function DoctorPage() {
   const [error, setError] = useState('')
   const [search, setSearch] = useState('')
   const [reviewFilter, setReviewFilter] = useState<'all' | 'needs-review' | 'no-review'>('all')
+  const [requestBusy, setRequestBusy] = useState<string | null>(null)
 
   useEffect(() => {
     if (!user || user.role !== 'doctor') {
@@ -81,6 +82,23 @@ export function DoctorPage() {
       })
       .finally(() => setLoading(false))
   }, [user, demoMode])
+
+  async function respondToLinkRequest(requestId: string, decision: 'accept' | 'decline') {
+    if (demoMode || requestBusy) return
+    setRequestBusy(requestId)
+    setError('')
+    try {
+      await respondToDoctorLinkRequest(requestId, decision)
+      setDashboard((current) => current ? {
+        ...current,
+        linkRequests: current.linkRequests.filter((request) => request.id !== requestId),
+      } : current)
+    } catch (operationError) {
+      setError(operationError instanceof Error ? operationError.message : 'Unable to update the link request.')
+    } finally {
+      setRequestBusy(null)
+    }
+  }
 
   const filteredPatients = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase()
@@ -121,6 +139,29 @@ export function DoctorPage() {
 
       {demoMode && <p className="form-message">Prototype data is shown because Firebase is not configured.</p>}
       {error && <p className="form-error">{error}</p>}
+
+      {!!dashboard.linkRequests.length && (
+        <section className="panel">
+          <p className="eyebrow">Patient requests</p>
+          <h3>Review requests to connect</h3>
+          <p className="muted">Accepting a request links the patient to your assigned-patient queue. Declining leaves the patient free to use Primera and request another participating doctor.</p>
+          <ul className="list">
+            {dashboard.linkRequests.map((request) => (
+              <li key={request.id}>
+                <div>
+                  <strong>{request.patientName}</strong>
+                  <span>Requested access to your Primera care portal</span>
+                  <small className="muted">{request.createdAt ? new Date(request.createdAt).toLocaleString() : 'Date/time not recorded'}</small>
+                </div>
+                <div className="table-actions">
+                  <button className="button primary" disabled={demoMode || requestBusy !== null} onClick={() => respondToLinkRequest(request.id, 'accept')}>Accept</button>
+                  <button className="button" disabled={demoMode || requestBusy !== null} onClick={() => respondToLinkRequest(request.id, 'decline')}>Decline</button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {section === 'overview' && (
         <section className="metric-grid">
