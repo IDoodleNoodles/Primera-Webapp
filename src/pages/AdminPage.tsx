@@ -14,6 +14,7 @@ import {
   getEmptyAdminDashboard,
   setStaffAccountStatus,
   updatePatient,
+  updateDoctorName,
   updateStaffAccount,
 } from '../services/portalService'
 import type { AdminDashboardData, AdminPatient, PatientInput, StaffAccount } from '../services/portalService'
@@ -26,6 +27,7 @@ const emptyStaff = { name: '', email: '', password: '', role: 'doctor' as 'admin
 
 function adminSection(pathname: string) {
   if (pathname.includes('/patients')) return 'patients'
+  if (pathname.includes('/doctors')) return 'doctors'
   if (pathname.includes('/assignments')) return 'assignments'
   if (pathname.includes('/logs')) return 'logs'
   return 'overview'
@@ -45,7 +47,7 @@ export function AdminPage() {
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
-  const visibleStaff = staff.filter((account) => account.role !== 'admin')
+  const visibleStaff = section === 'doctors' ? staff.filter((account) => account.role === 'doctor') : staff
   const writesDisabled = demoMode || busy
 
   useEffect(() => {
@@ -116,12 +118,17 @@ export function AdminPage() {
     event.preventDefault()
     setBusy(true); setError(''); setMessage('')
     try {
+      const staffRole = section === 'doctors' ? 'doctor' : staffForm.role
       if (editingStaffId) {
-        await updateStaffAccount({ uid: editingStaffId, name: staffForm.name, role: staffForm.role })
-        setStaff((current) => current.map((item) => item.uid === editingStaffId ? { ...item, name: staffForm.name, role: staffForm.role } : item))
+        if (section === 'doctors') {
+          await updateDoctorName(editingStaffId, staffForm.name)
+        } else {
+          await updateStaffAccount({ uid: editingStaffId, name: staffForm.name, role: staffRole })
+        }
+        setStaff((current) => current.map((item) => item.uid === editingStaffId ? { ...item, name: staffForm.name, role: staffRole } : item))
       } else {
-        const result = await createStaffAccount(staffForm)
-        setStaff((current) => [...current, { uid: result.uid, name: staffForm.name, email: staffForm.email, role: staffForm.role, active: true }])
+        const result = await createStaffAccount({ ...staffForm, role: staffRole })
+        setStaff((current) => [...current, { uid: result.uid, name: staffForm.name, email: staffForm.email, role: staffRole, active: true }])
       }
       await refreshAdminDashboard()
       setStaffForm(emptyStaff); setEditingStaffId(null); setMessage('Staff account saved.')
@@ -187,6 +194,7 @@ export function AdminPage() {
           <p className="eyebrow">Admin dashboard</p>
           <h2>
             {section === 'patients' && 'Patient registry'}
+            {section === 'doctors' && 'Doctor registry'}
             {section === 'assignments' && 'Assignment board'}
             {section === 'logs' && 'Audit trail'}
             {section === 'overview' && 'Maternal care operations overview'}
@@ -211,18 +219,18 @@ export function AdminPage() {
       </section>
       )}
 
-      {section === 'overview' && (
+      {(section === 'overview' || section === 'doctors') && (
       <>
       <section className="panel admin-management">
-        <div className="panel-heading"><div><p className="eyebrow">Staff access</p><h3>{editingStaffId ? 'Edit staff account' : 'Create staff account'}</h3></div></div>
+        <div className="panel-heading"><div><p className="eyebrow">{section === 'doctors' ? 'Doctor registry' : 'Staff access'}</p><h3>{editingStaffId ? (section === 'doctors' ? 'Edit doctor record' : 'Edit staff account') : (section === 'doctors' ? 'Add doctor record' : 'Create staff account')}</h3></div></div>
         <form className="admin-form" onSubmit={saveStaff}>
           <label>Name<input required value={staffForm.name} onChange={(event) => setStaffForm({ ...staffForm, name: event.target.value })} /></label>
           {!editingStaffId && <label>Email<input required type="email" value={staffForm.email} onChange={(event) => setStaffForm({ ...staffForm, email: event.target.value })} /></label>}
           {!editingStaffId && <label>Temporary password<input required type="password" minLength={6} value={staffForm.password} onChange={(event) => setStaffForm({ ...staffForm, password: event.target.value })} /></label>}
-          <label>Role<select value={staffForm.role} onChange={(event) => setStaffForm({ ...staffForm, role: event.target.value as 'admin' | 'doctor' })}><option value="doctor">Doctor</option><option value="admin">Admin</option></select></label>
-          <div className="form-actions"><button className="button primary" disabled={writesDisabled}>{editingStaffId ? 'Update account' : 'Create account'}</button>{editingStaffId && <button type="button" className="button" onClick={() => { setEditingStaffId(null); setStaffForm(emptyStaff) }}>Cancel</button>}</div>
+          {section === 'overview' && <label>Role<select value={staffForm.role} onChange={(event) => setStaffForm({ ...staffForm, role: event.target.value as 'admin' | 'doctor' })}><option value="doctor">Doctor</option><option value="admin">Admin</option></select></label>}
+          <div className="form-actions"><button className="button primary" disabled={writesDisabled}>{editingStaffId ? (section === 'doctors' ? 'Update doctor' : 'Update account') : (section === 'doctors' ? 'Create doctor' : 'Create account')}</button>{editingStaffId && <button type="button" className="button" onClick={() => { setEditingStaffId(null); setStaffForm(emptyStaff) }}>Cancel</button>}</div>
         </form>
-        <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead><tbody>{visibleStaff.map((account) => <tr key={account.uid}><td>{account.name}</td><td>{account.email || 'No email on file'}</td><td>{account.role}</td><td>{account.active ? 'Active' : 'Disabled'}</td><td className="table-actions"><button className="button" disabled={demoMode} onClick={() => { setEditingStaffId(account.uid); setStaffForm({ name: account.name, email: account.email, password: '', role: account.role }) }}>Edit</button><button className="button" disabled={demoMode} onClick={() => toggleStaff(account)}>{account.active ? 'Disable' : 'Enable'}</button><button className="button danger" disabled={demoMode} onClick={() => removeStaff(account)}>Delete</button></td></tr>)}</tbody></table></div>
+        <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>{section === 'doctors' ? 'Doctor name' : 'Name'}</th><th>Email</th><th>{section === 'doctors' ? 'Specialty' : 'Role'}</th><th>Status</th><th>Actions</th></tr></thead><tbody>{visibleStaff.map((account) => <tr key={account.uid}><td>{account.name}</td><td>{account.email || 'No email on file'}</td><td>{section === 'doctors' ? (account.specialty || 'OBGYN') : account.role}</td><td>{account.active ? 'Active' : 'Disabled'}</td><td className="table-actions"><button className="button" disabled={demoMode} onClick={() => { setEditingStaffId(account.uid); setStaffForm({ name: account.name, email: account.email, password: '', role: account.role }) }}>Edit</button><button className="button" disabled={demoMode} onClick={() => toggleStaff(account)}>{account.active ? 'Disable' : 'Enable'}</button><button className="button danger" disabled={demoMode} onClick={() => removeStaff(account)}>Delete</button></td></tr>)}</tbody></table></div>
       </section>
 
       <section className="metric-grid">
@@ -249,10 +257,6 @@ export function AdminPage() {
           <div>
             <span>Unassigned</span>
             <strong>{dashboard.overview.unassigned}</strong>
-          </div>
-          <div>
-            <span>Clinical details</span>
-            <strong>Doctor only</strong>
           </div>
         </div>
       </section>

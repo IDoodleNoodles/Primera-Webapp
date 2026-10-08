@@ -1,5 +1,5 @@
 import type { AuditLog, ClinicalEvidenceRecord, DashboardMetric, DoctorAlert, Patient, PatientClinicalEvidence } from '../types'
-import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, limit, orderBy, query, serverTimestamp, setDoc, updateDoc, where } from 'firebase/firestore'
+import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, limit, orderBy, query, serverTimestamp, updateDoc, where, writeBatch } from 'firebase/firestore'
 import { db, firebaseConfigured } from '../firebase'
 import { getFunctions, httpsCallable } from 'firebase/functions'
 
@@ -25,7 +25,6 @@ type AdminOverview = {
   totalCases: number
   totalAssigned: number
   unassigned: number
-  averageRisk: number
 }
 
 export type AdminDashboardData = {
@@ -57,7 +56,6 @@ function buildOverview(items: Patient[]): AdminOverview {
       totalCases: 0,
       totalAssigned: 0,
       unassigned: 0,
-      averageRisk: 0,
     }
   }
 
@@ -65,9 +63,6 @@ function buildOverview(items: Patient[]): AdminOverview {
     totalCases: items.length,
     totalAssigned: items.filter((patient) => patient.assignedDoctorId).length,
     unassigned: items.filter((patient) => !patient.assignedDoctorId).length,
-    averageRisk: Math.round(
-      items.reduce((total, patient) => total + patient.riskScore, 0) / items.length,
-    ),
   }
 }
 
@@ -85,6 +80,18 @@ function firstString(data: Record<string, unknown>, keys: string[]) {
     if (typeof data[key] === 'string' && data[key].trim()) return data[key].trim()
   }
   return ''
+}
+
+function readProfileName(data: Record<string, unknown>, fallback: string) {
+  const name = firstString(data, ['name', 'displayName', 'fullName'])
+  if (name) return name
+  const firstName = typeof data.firstName === 'string' ? data.firstName.trim() : ''
+  const lastName = typeof data.lastName === 'string' ? data.lastName.trim() : ''
+  return [firstName, lastName].filter(Boolean).join(' ') || fallback
+}
+
+function isPatientProfile(data: Record<string, unknown>) {
+  return data.role === 'patient' || (data.role !== 'admin' && data.role !== 'doctor')
 }
 
 function firstNumber(data: Record<string, unknown>, keys: string[]) {
@@ -186,9 +193,8 @@ export function getEmptyAdminDashboard(): AdminDashboardData {
   return {
     metrics: [
       { label: 'Active OBGYNs', value: '0', change: 'No doctor accounts loaded' },
-      { label: 'High-risk pregnancies', value: '0', change: 'High and critical risk levels' },
       { label: 'Unassigned cases', value: '0', change: 'Patients without assigned doctor' },
-      { label: 'Alerts resolved', value: '0%', change: '0 of 0 alerts' },
+      { label: 'Active patient accounts', value: '0', change: 'No patient accounts loaded' },
     ],
     overview: buildOverview([]),
     activityLog: [],
@@ -211,8 +217,22 @@ export function getEmptyDoctorDashboard(): DoctorDashboardData {
 }
 
 export async function fetchStaffAccounts(): Promise<StaffAccount[]> {
-  if (!firebaseConfigured) return []
-  return callAdminFunction<StaffAccount[]>('fetchAdminStaffDirectory', {})
+  if (!firebaseConfigured || !db) return []
+  try {
+    return await callAdminFunction<StaffAccount[]>('fetchAdminStaffDirectory', {})
+  } catch {
+    const snapshot = await getDocs(collection(db, 'users'))
+    return snapshot.docs
+      .filter((entry) => entry.data().role === 'doctor' || entry.data().role === 'admin')
+      .map((entry): StaffAccount => ({
+        uid: entry.id,
+        name: readProfileName(entry.data(), 'Unnamed staff member'),
+        email: typeof entry.data().email === 'string' ? entry.data().email : '',
+        role: entry.data().role as 'admin' | 'doctor',
+        active: entry.data().active !== false,
+        specialty: typeof entry.data().specialty === 'string' ? entry.data().specialty : undefined,
+      }))
+  }
 }
 
 export async function createPatient(input: PatientInput) {
@@ -237,8 +257,7 @@ export async function updatePatient(patientId: string, input: PatientInput) {
 }
 
 export async function deletePatient(patientId: string) {
-  if (!db) throw new Error('Firebase is not configured.')
-  await deleteDoc(doc(db, 'users', patientId))
+  return callAdminFunction<{ id: string }>('deletePatientAccount', { patientId })
 }
 
 export async function assignPatient(patientId: string, doctorId: string | null) {
@@ -249,22 +268,24 @@ export async function assignPatient(patientId: string, doctorId: string | null) 
   const previousDoctorIds = existing.docs
     .map((entry) => entry.data().doctorId)
     .filter((value): value is string => typeof value === 'string')
-  await Promise.all(existing.docs.map((entry) => deleteDoc(entry.ref)))
-  await updateDoc(doc(firestore, 'users', patientId), { assignedDoctorId: doctorId })
-  await Promise.all(previousDoctorIds.map((previousDoctorId) => deleteDoc(
+  const batch = writeBatch(firestore)
+  existing.docs.forEach((entry) => batch.delete(entry.ref))
+  batch.update(doc(firestore, 'users', patientId), { assignedDoctorId: doctorId })
+  previousDoctorIds.forEach((previousDoctorId) => batch.delete(
     doc(firestore, 'doctors', previousDoctorId, 'assignedPatients', patientId),
-  )))
+  ))
   if (doctorId) {
-    await setDoc(doc(firestore, 'assignments', `${doctorId}_${patientId}`), {
+    batch.set(doc(firestore, 'assignments', `${doctorId}_${patientId}`), {
       patientId,
       doctorId,
       assignedAt: serverTimestamp(),
     })
-    await setDoc(doc(firestore, 'doctors', doctorId, 'assignedPatients', patientId), {
+    batch.set(doc(firestore, 'doctors', doctorId, 'assignedPatients', patientId), {
       patientId,
       assignedAt: serverTimestamp(),
     }, { merge: true })
   }
+  await batch.commit()
 }
 
 async function callAdminFunction<T>(name: string, data: object) {
@@ -282,6 +303,15 @@ export function updateStaffAccount(data: { uid: string; name: string; role: 'adm
   return callAdminFunction<{ uid: string }>('updateStaffAccount', data)
 }
 
+export async function updateDoctorName(uid: string, name: string) {
+  if (!db) throw new Error('Firebase is not configured.')
+  await Promise.all([
+    updateDoc(doc(db, 'users', uid), { name, role: 'doctor' }),
+    updateDoc(doc(db, 'doctors', uid), { name }),
+  ])
+  return { uid }
+}
+
 export function deleteStaffAccount(uid: string) {
   return callAdminFunction<{ uid: string }>('deleteStaffAccount', { uid })
 }
@@ -291,7 +321,16 @@ export function setStaffAccountStatus(uid: string, active: boolean) {
 }
 
 export function fetchAdminPatientDirectory() {
-  return callAdminFunction<AdminPatient[]>('fetchAdminPatientDirectory', {})
+  if (!db) return Promise.resolve([] as AdminPatient[])
+
+  return getDocs(collection(db, 'users')).then((snapshot) => snapshot.docs
+    .filter((entry) => isPatientProfile(entry.data()))
+    .map((entry): AdminPatient => ({
+      id: entry.id,
+      name: readProfileName(entry.data(), 'Unnamed patient'),
+      assignedDoctorId: typeof entry.data().assignedDoctorId === 'string' ? entry.data().assignedDoctorId : null,
+      active: entry.data().active !== false,
+    })))
 }
 
 type FirestorePatient = Partial<Patient> & {
@@ -360,8 +399,7 @@ export async function fetchVisiblePatients(role: 'admin' | 'doctor', userId: str
     const snapshot = await getDocs(collection(firestore, 'users'))
     return snapshot.docs
       .filter((patient) => {
-        const userRole = patient.data().role
-        return userRole === 'patient'
+        return isPatientProfile(patient.data())
       })
       .map((patient) => toPatient(patient.id, patient.data()))
   }
@@ -425,7 +463,6 @@ export async function fetchAdminDashboardData(userId: string): Promise<AdminDash
     totalCases: visiblePatients.length,
     totalAssigned: visiblePatients.length - unassignedCases,
     unassigned: unassignedCases,
-    averageRisk: 0,
   }
 
   const metrics: DashboardMetric[] = [
@@ -445,9 +482,9 @@ export async function fetchAdminDashboardData(userId: string): Promise<AdminDash
       change: 'Patients without assigned doctor',
     },
     {
-      label: 'Clinical alerts',
-      value: 'Doctor only',
-      change: 'Clinical queue is restricted to assigned clinicians',
+      label: 'Audit events',
+      value: String(auditSnapshot.size),
+      change: 'Recent portal activity',
     },
   ]
 

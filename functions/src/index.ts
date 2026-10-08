@@ -16,6 +16,17 @@ type AdminPatient = {
   active: boolean
 }
 
+function readName(data: Record<string, unknown>, fallback: string) {
+  if (typeof data.name === 'string' && data.name.trim()) return data.name.trim()
+  const firstName = typeof data.firstName === 'string' ? data.firstName.trim() : ''
+  const lastName = typeof data.lastName === 'string' ? data.lastName.trim() : ''
+  return [firstName, lastName].filter(Boolean).join(' ') || fallback
+}
+
+function isPatientProfile(data: Record<string, unknown>) {
+  return data.role === 'patient' || (data.role !== 'admin' && data.role !== 'doctor')
+}
+
 function requireAdmin(request: { auth?: { token?: Record<string, unknown> } }) {
   if (request.auth?.token?.role !== 'admin') {
     throw new HttpsError('permission-denied', 'Only administrators can manage portal accounts.')
@@ -30,12 +41,14 @@ export const createStaffAccount = onCall(async (request) => {
     throw new HttpsError('invalid-argument', 'email, password, name, and a valid role are required.')
   }
 
+  let createdUid: string | undefined
   try {
     const user = await auth.createUser({
       email: data.email,
       password: data.password,
       displayName: data.name,
     })
+    createdUid = user.uid
 
     await auth.setCustomUserClaims(user.uid, { role: data.role })
     await db.doc(`users/${user.uid}`).set({
@@ -65,6 +78,7 @@ export const createStaffAccount = onCall(async (request) => {
 
     return { uid: user.uid }
   } catch (error) {
+    if (createdUid) await auth.deleteUser(createdUid).catch(() => undefined)
     const code = error instanceof Error && error.message.includes('already')
       ? 'already-exists'
       : 'internal'
@@ -78,12 +92,11 @@ export const fetchAdminPatientDirectory = onCall(async (request) => {
   const snapshot = await db.collection('users').get()
   return snapshot.docs
     .filter((entry) => {
-      const role = entry.data().role
-      return role === 'patient'
+      return isPatientProfile(entry.data())
     })
     .map((entry): AdminPatient => ({
       id: entry.id,
-      name: typeof entry.data().name === 'string' ? entry.data().name : 'Unnamed patient',
+      name: readName(entry.data(), 'Unnamed patient'),
       assignedDoctorId: typeof entry.data().assignedDoctorId === 'string' ? entry.data().assignedDoctorId : null,
       active: entry.data().active !== false,
     }))
@@ -94,13 +107,14 @@ export const fetchAdminStaffDirectory = onCall(async (request) => {
 
   const snapshot = await db.collection('users').get()
   return snapshot.docs
-    .filter((entry) => entry.data().role === 'doctor')
+    .filter((entry) => entry.data().role === 'doctor' || entry.data().role === 'admin')
     .map((entry) => ({
       uid: entry.id,
-      name: typeof entry.data().name === 'string' ? entry.data().name : 'Unnamed staff member',
+      name: readName(entry.data(), 'Unnamed staff member'),
       email: typeof entry.data().email === 'string' ? entry.data().email : '',
-      role: 'doctor' as const,
+      role: entry.data().role as 'admin' | 'doctor',
       active: entry.data().active !== false,
+      specialty: typeof entry.data().specialty === 'string' ? entry.data().specialty : undefined,
     }))
 })
 
@@ -130,7 +144,11 @@ export const updateStaffAccount = onCall(async (request) => {
 
   const user = await auth.updateUser(data.uid, { displayName: data.name })
   await auth.setCustomUserClaims(data.uid, { role: data.role })
+  const previousProfile = await db.doc(`users/${data.uid}`).get()
+  const previousRole = previousProfile.data()?.role
   await db.doc(`users/${data.uid}`).set({ name: data.name, role: data.role }, { merge: true })
+  if (previousRole === 'doctor' && data.role === 'admin') await db.doc(`doctors/${data.uid}`).delete()
+  if (previousRole === 'admin' && data.role === 'doctor') await db.doc(`admins/${data.uid}`).delete()
   await db.doc(`${data.role === 'doctor' ? 'doctors' : 'admins'}/${data.uid}`).set({ name: data.name }, { merge: true })
 
   return { uid: user.uid }
@@ -153,6 +171,33 @@ export const deleteStaffAccount = onCall(async (request) => {
   return { uid: data.uid }
 })
 
+export const deletePatientAccount = onCall(async (request) => {
+  requireAdmin(request)
+
+  const data = request.data as { patientId?: string }
+  if (!data.patientId) throw new HttpsError('invalid-argument', 'patientId is required.')
+
+  const assignments = await db.collection('assignments').where('patientId', '==', data.patientId).get()
+  const doctorIds = assignments.docs
+    .map((entry) => entry.data().doctorId)
+    .filter((doctorId): doctorId is string => typeof doctorId === 'string')
+  const dependentCollections = ['alerts', 'activity_logs', 'transcriptions', 'checkins', 'goals']
+  const dependentSnapshots = await Promise.all(dependentCollections.map((name) => {
+    const field = name === 'alerts' ? 'patientId' : 'userId'
+    return db.collection(name).where(field, '==', data.patientId).get()
+  }))
+  const batch = db.batch()
+  batch.delete(db.doc(`users/${data.patientId}`))
+  assignments.docs.forEach((entry) => batch.delete(entry.ref))
+  doctorIds.forEach((doctorId) => batch.delete(db.doc(`doctors/${doctorId}/assignedPatients/${data.patientId}`)))
+  dependentSnapshots.forEach((snapshot) => snapshot.docs.forEach((entry) => batch.delete(entry.ref)))
+  const smartwatch = await db.collection(`users/${data.patientId}/smartwatchHealthRecords`).get()
+  smartwatch.docs.forEach((entry) => batch.delete(entry.ref))
+  await batch.commit()
+
+  return { id: data.patientId }
+})
+
 export const resetStaffPassword = onCall(async (request) => {
   requireAdmin(request)
 
@@ -167,7 +212,8 @@ export const resetStaffPassword = onCall(async (request) => {
 export const writeAuditLog = onCall(async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Authentication is required.')
   const data = request.data as { action?: string; targetId?: string; targetType?: string }
-  if (!data.action || !data.targetId || !data.targetType) {
+  const targetTypes = new Set(['patient', 'doctor', 'assignment', 'system'])
+  if (!data.action || data.action.length > 120 || !data.targetId || data.targetId.length > 200 || !data.targetType || !targetTypes.has(data.targetType)) {
     throw new HttpsError('invalid-argument', 'action, targetId, and targetType are required.')
   }
 
