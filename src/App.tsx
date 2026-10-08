@@ -6,6 +6,7 @@ import { LandingPage } from './pages/LandingPage'
 import { AdminPage } from './pages/AdminPage'
 import { DoctorPage } from './pages/DoctorPage'
 import { PatientDetailPage } from './pages/PatientDetailPage'
+import { DoctorProfilePage } from './pages/DoctorProfilePage'
 
 function AppRoutes() {
   const { user } = useAuth()
@@ -42,6 +43,7 @@ function AppRoutes() {
                 <Route path="patients" element={<DoctorPage />} />
                 <Route path="patients/:patientId" element={<PatientDetailPage />} />
                 <Route path="alerts" element={<DoctorPage />} />
+                <Route path="profile" element={<DoctorProfilePage />} />
                 <Route path="*" element={<Navigate to="/doctor" replace />} />
               </Routes>
             </DoctorShell>

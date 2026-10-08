@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'firebase/auth'
+import { onAuthStateChanged, signInWithEmailAndPassword, signOut, updatePassword } from 'firebase/auth'
 import { doc, getDoc } from 'firebase/firestore'
 import { auth, db, firebaseConfigured } from '../firebase'
 import type { Role, UserSession } from '../types'
@@ -10,6 +10,7 @@ type AuthContextValue = {
   loading: boolean
   error: string | null
   signIn: (email: string, password: string) => Promise<void>
+  changePassword: (password: string) => Promise<void>
   logout: () => Promise<void>
 }
 
@@ -79,6 +80,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         setError(null)
         await signInWithEmailAndPassword(auth, email, password)
+      },
+      changePassword: async (password) => {
+        if (!auth?.currentUser) {
+          throw new Error('You must be signed in to change your password.')
+        }
+
+        await updatePassword(auth.currentUser, password)
       },
       logout: async () => {
         if (auth) await signOut(auth)
