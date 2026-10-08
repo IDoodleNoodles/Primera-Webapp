@@ -68,6 +68,7 @@ export type DoctorAlert = {
   id: string
   patientId: string
   doctorId: string
+  category: 'recurring-symptom' | 'approved-rule-match' | 'clinician-defined'
   title: string
   details: string
   status: 'active' | 'resolved'

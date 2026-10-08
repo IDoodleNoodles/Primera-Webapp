@@ -499,6 +499,65 @@
   font-size: 0.82rem;
 }
 
+.print-summary {
+  display: none;
+}
+
+.print-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 20px 0;
+}
+
+.print-summary-grid div,
+.print-record {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid var(--line);
+}
+
+.print-record {
+  margin-bottom: 10px;
+}
+
+.print-disclaimer {
+  margin-top: 24px;
+  font-size: 0.85rem;
+}
+
+@media print {
+  body {
+    background: white;
+  }
+
+  .sidebar,
+  .page-header,
+  .form-message,
+  .form-error,
+  .panel,
+  .summary-grid,
+  .attention-panel {
+    display: none !important;
+  }
+
+  .shell,
+  .content,
+  .page {
+    display: block;
+    max-width: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  .print-summary {
+    display: block;
+    color: #111;
+  }
+}
+
 .detail-list {
   display: grid;
   grid-template-columns: repeat(2, minmax(140px, 1fr));

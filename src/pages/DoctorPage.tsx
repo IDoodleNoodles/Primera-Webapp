@@ -33,6 +33,12 @@ function formatCheckIn(value: string) {
   return value ? new Date(value).toLocaleDateString() : 'Not recorded'
 }
 
+function alertCategoryLabel(category: DoctorAlert['category']) {
+  if (category === 'recurring-symptom') return 'Recurring symptom'
+  if (category === 'approved-rule-match') return 'Approved review rule'
+  return 'Clinician-defined'
+}
+
 export function DoctorPage() {
   const { user } = useAuth()
   const section = doctorSection(useLocation().pathname)
@@ -130,34 +136,27 @@ export function DoctorPage() {
 
       {section === 'alerts' ? (
         <section className="panel">
-          <p className="eyebrow">Review queue</p>
-          <h3>Patients and records needing attention</h3>
+          <p className="eyebrow">Alerts / needs review</p>
+          <h3>Review observed events, not diagnoses</h3>
+          <p className="muted">Alerts are prompts to review patient-provided or connected information. Trigger rules and terminology require OB-GYN consultant validation.</p>
           <ul className="list">
-            {dashboard.reviewPatients.map((patient) => (
-              <li key={patient.id}>
-                <div>
-                  <strong>{patient.name}</strong>
-                  <span>{reviewLabel(patient)} · last check-in {formatCheckIn(patient.lastCheckIn)}</span>
-                </div>
-                <Link to={`/doctor/patients/${patient.id}`} className="button">Open</Link>
-              </li>
-            ))}
-            {!dashboard.reviewPatients.length && <li><span className="muted">No patients or records need review.</span></li>}
-          </ul>
-          <h3 className="section-heading">Alerts</h3>
-          <ul className="list">
-            {alerts.map((alert) => (
+            {alerts.filter((alert) => alert.status === 'active').map((alert) => (
               <li key={alert.id}>
                 <div>
-                  <strong>{alert.title}</strong>
-                  <span>{patientsById.get(alert.patientId) ?? 'Assigned patient'}</span>
-                  <span className="muted">{alert.status} {alert.createdAt ? `- ${new Date(alert.createdAt).toLocaleDateString()}` : ''}</span>
+                  <strong>{patientsById.get(alert.patientId) ?? 'Assigned patient'}</strong>
+                  <span>{alert.title}</span>
+                  <span>{alert.details || 'No additional context recorded.'}</span>
+                  <small className="muted">{alertCategoryLabel(alert.category)} · {alert.createdAt ? new Date(alert.createdAt).toLocaleString() : 'Date/time not recorded'}</small>
                 </div>
-                <Link to={`/doctor/patients/${alert.patientId}`} className="button">Open</Link>
+                <div className="table-actions">
+                  <Link to={`/doctor/patients/${alert.patientId}`} className="button">Review</Link>
+                  <Link to={`/doctor/patients/${alert.patientId}`} className="button">Open patient</Link>
+                </div>
               </li>
             ))}
-            {!alerts.length && <li><span className="muted">No alerts in your queue yet.</span></li>}
+            {!alerts.filter((alert) => alert.status === 'active').length && <li><span className="muted">No alerts in your queue yet.</span></li>}
           </ul>
+          {!!dashboard.reviewPatients.length && <p className="section-heading muted">Patients with other review items: {dashboard.reviewPatients.map((patient) => `${patient.name} (${reviewLabel(patient)})`).join(', ')}.</p>}
         </section>
       ) : (
         <>
