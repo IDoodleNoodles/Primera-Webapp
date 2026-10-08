@@ -6,12 +6,31 @@ import { useAuth } from '../context/AuthContext'
 import { getMockDoctorAlerts, getMockDoctorDashboard } from '../data/mockPortalData'
 import { fetchDoctorAlerts, fetchDoctorDashboardData, getEmptyDoctorDashboard } from '../services/portalService'
 import type { DoctorDashboardData } from '../services/portalService'
-import type { DoctorAlert } from '../types'
+import type { DoctorAlert, Patient } from '../types'
 
 function doctorSection(pathname: string) {
   if (pathname.includes('/alerts')) return 'alerts'
   if (pathname.endsWith('/patients') || pathname.includes('/patients')) return 'patients'
   return 'overview'
+}
+
+function formatGestation(patient: Patient) {
+  if (patient.pregnancyWeek) {
+    return `${patient.pregnancyWeek} weeks${patient.trimester ? ` · ${patient.trimester}` : ''}`
+  }
+
+  return patient.trimester || 'Gestation not recorded'
+}
+
+function reviewLabel(patient: Patient) {
+  if (patient.alertCount > 0) return `${patient.alertCount} alert${patient.alertCount === 1 ? '' : 's'}`
+  if (patient.unreadNotes > 0) return 'Unread record'
+  if (patient.status === 'escalated') return 'Follow-up indicated'
+  return 'No review items'
+}
+
+function formatCheckIn(value: string) {
+  return value ? new Date(value).toLocaleDateString() : 'Not recorded'
 }
 
 export function DoctorPage() {
@@ -75,9 +94,9 @@ export function DoctorPage() {
         <div>
           <p className="eyebrow">OBGYN dashboard</p>
           <h2>
-            {section === 'alerts' && 'Risk alerts'}
+            {section === 'alerts' && 'Alerts and review queue'}
             {section === 'patients' && 'Assigned patients'}
-            {section === 'overview' && 'Assigned pregnancy cases'}
+            {section === 'overview' && 'Doctor dashboard'}
           </h2>
         </div>
       </header>
@@ -100,19 +119,20 @@ export function DoctorPage() {
       {section === 'alerts' ? (
         <section className="panel">
           <p className="eyebrow">Review queue</p>
-          <h3>High-risk cases and clinical alerts</h3>
+          <h3>Patients and records needing attention</h3>
           <ul className="list">
             {dashboard.reviewPatients.map((patient) => (
               <li key={patient.id}>
                 <div>
                   <strong>{patient.name}</strong>
-                  <span>{patient.status} · score {patient.riskScore}</span>
+                  <span>{reviewLabel(patient)} · last check-in {formatCheckIn(patient.lastCheckIn)}</span>
                 </div>
                 <Link to={`/doctor/patients/${patient.id}`} className="button">Open</Link>
               </li>
             ))}
-            {!dashboard.reviewPatients.length && <li><span className="muted">No high-risk assigned patients.</span></li>}
+            {!dashboard.reviewPatients.length && <li><span className="muted">No patients or records need review.</span></li>}
           </ul>
+          <h3 className="section-heading">Alerts</h3>
           <ul className="list">
             {alerts.map((alert) => (
               <li key={alert.id}>
@@ -129,6 +149,33 @@ export function DoctorPage() {
         </section>
       ) : (
         <>
+          {section === 'overview' && (
+            <section className="panel review-panel">
+              <div className="panel-heading">
+                <div>
+                  <p className="eyebrow">Start here</p>
+                  <h3>Needs review now</h3>
+                </div>
+                <Link to="/doctor/alerts" className="button">View queue</Link>
+              </div>
+              {dashboard.reviewPatients.length ? (
+                <ul className="list">
+                  {dashboard.reviewPatients.slice(0, 4).map((patient) => (
+                    <li key={patient.id}>
+                      <div>
+                        <strong>{patient.name}</strong>
+                        <span>{reviewLabel(patient)} · last check-in {formatCheckIn(patient.lastCheckIn)}</span>
+                      </div>
+                      <Link to={`/doctor/patients/${patient.id}`} className="button">Open</Link>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="muted">No patients or records need review right now.</p>
+              )}
+            </section>
+          )}
+
           {!dashboard.assignedPatients.length ? (
             <section className="panel">
               <p className="eyebrow">No assignments yet</p>
@@ -143,18 +190,20 @@ export function DoctorPage() {
                 <div className="patient-card-top">
                   <div>
                     <h3>{patient.name}</h3>
-                    <span className="muted">Risk score: {patient.riskScore}</span>
+                    <span className="muted">{formatGestation(patient)}</span>
                   </div>
-                  <span className={`risk-badge ${patient.riskLevel}`}>{patient.riskLevel}</span>
+                  <span className={`review-badge ${patient.alertCount || patient.unreadNotes || patient.status === 'escalated' ? 'needs-review' : 'reviewed'}`}>
+                    {patient.alertCount || patient.unreadNotes || patient.status === 'escalated' ? 'Needs review' : 'No review items'}
+                  </span>
                 </div>
 
                 <div className="mini-stats">
-                  <span>Symptoms: {patient.symptoms}</span>
-                  <span>Alerts: {patient.alertCount}</span>
+                  <span>Review status</span>
+                  <strong>{reviewLabel(patient)}</strong>
                 </div>
 
                 <div className="patient-card-footer">
-                  <span>Last check-in: {patient.lastCheckIn ? new Date(patient.lastCheckIn).toLocaleDateString() : 'N/A'}</span>
+                  <span>Last check-in: {formatCheckIn(patient.lastCheckIn)}</span>
                   <ArrowUpRight size={16} />
                 </div>
               </Link>

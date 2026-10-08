@@ -11,6 +11,8 @@ export type Patient = {
   id: string
   name: string
   assignedDoctorId: string | null
+  pregnancyWeek?: number | null
+  trimester?: string | null
   riskLevel: 'low' | 'moderate' | 'high' | 'critical'
   riskScore: number
   status: 'stable' | 'monitoring' | 'escalated'
