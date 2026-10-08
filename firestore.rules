@@ -110,6 +110,17 @@ service cloud.firestore {
       allow update, delete: if isDoctor() && resource.data.doctorId == request.auth.uid;
     }
 
+    match /doctorLinkRequests/{requestId} {
+      allow create: if isOwner(request.resource.data.patientId)
+        && request.resource.data.status == 'pending';
+      allow read: if isAdmin()
+        || (isDoctor() && resource.data.doctorId == request.auth.uid)
+        || isOwner(resource.data.patientId);
+      allow update: if isOwner(resource.data.patientId)
+        || (isDoctor() && resource.data.doctorId == request.auth.uid);
+      allow delete: if isAdmin() || isOwner(resource.data.patientId);
+    }
+
     match /auditLogs/{logId} {
       allow read: if isAdmin();
       allow write: if false;

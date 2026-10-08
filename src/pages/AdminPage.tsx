@@ -209,6 +209,7 @@ export function AdminPage() {
       {section === 'patients' && (
       <section className="panel admin-management">
         <div className="panel-heading"><div><p className="eyebrow">Patient registry</p><h3>{editingPatientId ? 'Edit patient record' : 'Add patient record'}</h3></div></div>
+        <p className="muted">Patients may use Primera without a linked doctor. A patient-requested link becomes visible to the selected doctor for acceptance; admin assignments and reassignments take effect immediately.</p>
         <form className="admin-form" onSubmit={savePatient}>
           <label>Name<input required value={patientForm.name} onChange={(event) => setPatientForm({ ...patientForm, name: event.target.value })} /></label>
           <label>Assigned doctor<select value={patientForm.assignedDoctorId ?? ''} onChange={(event) => setPatientForm({ ...patientForm, assignedDoctorId: event.target.value || null })}><option value="">Unassigned</option>{staff.filter((account) => account.role === 'doctor' && account.active).map((doctor) => <option key={doctor.uid} value={doctor.uid}>{doctor.name}</option>)}</select></label>
@@ -266,6 +267,7 @@ export function AdminPage() {
       {section === 'assignments' && (
       <section className="panel">
         <div className="panel-heading"><div><p className="eyebrow">Assignments</p><h3>Doctor-to-patient coverage</h3></div></div>
+        <p className="muted">Use this board for admin overrides and reassignment. Patient requests are accepted by the requested doctor from their assigned-patient workspace.</p>
         <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Patient account</th><th>Doctor</th><th>Actions</th></tr></thead><tbody>{dashboard.patients.map((patient) => <tr key={patient.id}><td>{patient.name}</td><td>{staff.find((account) => account.uid === patient.assignedDoctorId)?.name ?? 'Unassigned'}</td><td className="table-actions">{patient.assignedDoctorId && <button className="button" disabled={demoMode} onClick={() => unassignPatient(patient)}>Unassign</button>}</td></tr>)}</tbody></table></div>
       </section>
       )}

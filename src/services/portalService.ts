@@ -1,4 +1,4 @@
-import type { AuditLog, ClinicalEvidenceRecord, DashboardMetric, DoctorAlert, Patient, PatientClinicalEvidence } from '../types'
+import type { AuditLog, ClinicalEvidenceRecord, DashboardMetric, DoctorAlert, DoctorLinkRequest, Patient, PatientClinicalEvidence } from '../types'
 import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, limit, orderBy, query, serverTimestamp, updateDoc, where, writeBatch } from 'firebase/firestore'
 import { db, firebaseConfigured } from '../firebase'
 import { getFunctions, httpsCallable } from 'firebase/functions'
@@ -18,6 +18,8 @@ export type AdminPatient = {
   assignedDoctorId: string | null
   active: boolean
 }
+
+export type { DoctorLinkRequest }
 
 export type PatientInput = Pick<AdminPatient, 'name' | 'assignedDoctorId' | 'active'>
 
@@ -46,6 +48,7 @@ export type DoctorDashboardData = {
   assignedPatients: Patient[]
   reviewPatients: Patient[]
   overview: DoctorOverview
+  linkRequests: DoctorLinkRequest[]
 }
 
 export type { DoctorAlert }
@@ -213,7 +216,51 @@ export function getEmptyDoctorDashboard(): DoctorDashboardData {
     assignedPatients: [],
     reviewPatients: [],
     overview: { assignedPatients: 0, needsReview: 0, activeAlerts: 0, recentCheckIns: 0 },
+    linkRequests: [],
   }
+}
+
+function toDoctorLinkRequest(id: string, data: Record<string, unknown>, patientName = 'Patient') : DoctorLinkRequest {
+  return {
+    id,
+    patientId: typeof data.patientId === 'string' ? data.patientId : '',
+    patientName,
+    doctorId: typeof data.doctorId === 'string' ? data.doctorId : '',
+    status: data.status === 'accepted' || data.status === 'declined' || data.status === 'cancelled' ? data.status : 'pending',
+    createdAt: toIsoTimestamp(data.createdAt),
+  }
+}
+
+export async function fetchDoctorLinkRequests(doctorId: string): Promise<DoctorLinkRequest[]> {
+  if (!db) return []
+  const firestore = db
+  let snapshot
+  try {
+    snapshot = await getDocs(query(
+      collection(firestore, 'doctorLinkRequests'),
+      where('doctorId', '==', doctorId),
+      where('status', '==', 'pending'),
+      limit(50),
+    ))
+  } catch {
+    snapshot = await getDocs(query(
+      collection(firestore, 'doctorLinkRequests'),
+      where('doctorId', '==', doctorId),
+      limit(50),
+    ))
+  }
+  const requests = await Promise.all(snapshot.docs.map(async (entry) => {
+    const patientId = entry.data().patientId
+    const profile = typeof patientId === 'string' ? await getDoc(doc(firestore, 'users', patientId)) : null
+    return toDoctorLinkRequest(entry.id, entry.data(), profile?.exists() ? readProfileName(profile.data(), 'Patient') : 'Patient')
+  }))
+  return requests
+    .filter((request) => request.status === 'pending')
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+}
+
+export function respondToDoctorLinkRequest(requestId: string, decision: 'accept' | 'decline') {
+  return callAdminFunction<{ success: boolean }>('respondToDoctorLinkRequest', { requestId, decision })
 }
 
 export async function fetchStaffAccounts(): Promise<StaffAccount[]> {
@@ -520,6 +567,12 @@ export async function fetchDoctorDashboardData(doctorId: string): Promise<Doctor
   if (!db) return getEmptyDoctorDashboard()
 
   const assignedPatients = await fetchVisiblePatients('doctor', doctorId)
+  let linkRequests: DoctorLinkRequest[] = []
+  try {
+    linkRequests = await fetchDoctorLinkRequests(doctorId)
+  } catch {
+    // A missing request collection or index must not hide assigned patients.
+  }
   let alertCount = assignedPatients.reduce((total, patient) => total + patient.alertCount, 0)
   const activeAlertPatientIds = new Set<string>()
 
@@ -557,6 +610,7 @@ export async function fetchDoctorDashboardData(doctorId: string): Promise<Doctor
       activeAlerts: alertCount,
       recentCheckIns,
     },
+    linkRequests,
   }
 }
 
