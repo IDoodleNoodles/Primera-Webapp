@@ -47,6 +47,7 @@ export function DoctorShell({ children }: { children: ReactNode }) {
             <NavLink to="/doctor" end className={baseLinkClass}>Case Dashboard</NavLink>
             <NavLink to="/doctor/patients" className={baseLinkClass}>Assigned Patients</NavLink>
             <NavLink to="/doctor/alerts" className={baseLinkClass}>Alerts / Needs Review</NavLink>
+            <NavLink to="/doctor/profile" className={baseLinkClass}>Profile</NavLink>
           </nav>
         </div>
 
