@@ -254,6 +254,14 @@
   gap: 8px;
 }
 
+.open-patient-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--primary-dark);
+  font-weight: 700;
+}
+
 .patient-card h3 {
   margin: 0 0 4px;
   color: var(--ink);
@@ -279,6 +287,146 @@
 
 .detail-grid {
   grid-template-columns: 1.2fr 1fr;
+}
+
+.patient-directory {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.directory-filters {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.directory-filters label {
+  display: block;
+}
+
+.directory-filters input,
+.directory-filters select {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 11px 12px;
+  color: var(--ink);
+  background: #fff;
+}
+
+.search-field {
+  flex: 1;
+}
+
+.search-field input {
+  width: 100%;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.patient-overview {
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+}
+
+.patient-overview small,
+.trend-grid small {
+  color: var(--muted);
+}
+
+.attention-panel {
+  border: 1px solid #f0c7a0;
+  border-left: 4px solid #d9853d;
+  border-radius: var(--radius);
+  padding: 20px 22px;
+  background: #fff9f2;
+}
+
+.attention-panel h3 {
+  margin: 0 0 14px;
+}
+
+.attention-list {
+  display: grid;
+  gap: 10px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.attention-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.attention-list span {
+  color: var(--muted);
+}
+
+.checkin-grid {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.checkin-card {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 15px;
+  background: var(--bg-soft);
+}
+
+.checkin-card .panel-heading {
+  margin-bottom: 8px;
+}
+
+.checkin-card p {
+  margin: 0 0 12px;
+}
+
+.checkin-meta {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.trend-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(140px, 1fr));
+  gap: 12px;
+  margin: 18px 0;
+}
+
+.trend-grid div {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 14px;
+  border-radius: 14px;
+  background: var(--bg-soft);
+}
+
+.history-disclosure {
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+}
+
+.history-disclosure summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--primary-dark);
 }
 
 .panel-heading {
@@ -597,11 +745,18 @@
   .two-column,
   .detail-grid,
   .summary-grid,
-  .evidence-columns {
+  .evidence-columns,
+  .patient-overview,
+  .trend-grid {
     grid-template-columns: 1fr;
   }
 
   .admin-form {
     grid-template-columns: 1fr;
+  }
+
+  .directory-filters {
+    align-items: stretch;
+    flex-direction: column;
   }
 }
