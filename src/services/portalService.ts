@@ -35,10 +35,10 @@ export type AdminDashboardData = {
 }
 
 type DoctorOverview = {
-  assignedCases: number
-  highRiskCases: number
-  criticalCases: number
-  averageRisk: number
+  assignedPatients: number
+  needsReview: number
+  activeAlerts: number
+  recentCheckIns: number
 }
 
 export type DoctorDashboardData = {
@@ -205,14 +205,14 @@ export function getEmptyAdminDashboard(): AdminDashboardData {
 export function getEmptyDoctorDashboard(): DoctorDashboardData {
   return {
     metrics: [
-      { label: 'Assigned cases', value: '0', change: '0 active alerts' },
-      { label: 'High-risk cases', value: '0', change: 'High and critical cases' },
-      { label: 'Critical cases', value: '0', change: 'Need immediate review' },
-      { label: 'Avg risk score', value: '0', change: 'Across assigned patients' },
+      { label: 'Assigned patients', value: '0', change: 'No patient accounts loaded' },
+      { label: 'Records needing review', value: '0', change: 'No follow-up items' },
+      { label: 'Active or new alerts', value: '0', change: 'No alerts in your queue' },
+      { label: 'Recent check-ins', value: '0', change: 'No check-ins recorded' },
     ],
     assignedPatients: [],
     reviewPatients: [],
-    overview: { assignedCases: 0, highRiskCases: 0, criticalCases: 0, averageRisk: 0 },
+    overview: { assignedPatients: 0, needsReview: 0, activeAlerts: 0, recentCheckIns: 0 },
   }
 }
 
@@ -343,6 +343,8 @@ function toPatient(id: string, data: FirestorePatient): Patient {
     id,
     name: data.name ?? 'Unnamed patient',
     assignedDoctorId: data.assignedDoctorId ?? null,
+    pregnancyWeek: data.pregnancyWeek ?? null,
+    trimester: data.trimester ?? null,
     riskLevel: data.riskLevel ?? 'low',
     riskScore: data.riskScore ?? 0,
     status: data.status ?? 'stable',
@@ -518,57 +520,42 @@ export async function fetchDoctorDashboardData(doctorId: string): Promise<Doctor
   if (!db) return getEmptyDoctorDashboard()
 
   const assignedPatients = await fetchVisiblePatients('doctor', doctorId)
-  const highRiskCases = assignedPatients.filter(
-    (patient) => patient.riskLevel === 'high' || patient.riskLevel === 'critical',
-  ).length
-  const criticalCases = assignedPatients.filter((patient) => patient.riskLevel === 'critical').length
-  const averageRisk = assignedPatients.length
-    ? Math.round(assignedPatients.reduce((total, patient) => total + patient.riskScore, 0) / assignedPatients.length)
-    : 0
-
   let alertCount = assignedPatients.reduce((total, patient) => total + patient.alertCount, 0)
+  const activeAlertPatientIds = new Set<string>()
 
   try {
     const alertsSnapshot = await getDocs(
       query(collection(db, 'alerts'), where('doctorId', '==', doctorId)),
     )
-    alertCount = alertsSnapshot.size
+    const activeAlerts = alertsSnapshot.docs.filter((entry) => entry.data().status !== 'resolved')
+    alertCount = activeAlerts.length
+    activeAlerts.forEach((entry) => {
+      const patientId = entry.data().patientId
+      if (typeof patientId === 'string') activeAlertPatientIds.add(patientId)
+    })
   } catch {
     // Keep patient-derived alert count if alerts query is unavailable.
   }
 
+  const reviewPatients = assignedPatients
+    .filter((patient) => activeAlertPatientIds.has(patient.id) || patient.alertCount > 0 || patient.unreadNotes > 0 || patient.status === 'escalated')
+    .sort((left, right) => right.lastCheckIn.localeCompare(left.lastCheckIn))
+  const recentCheckIns = assignedPatients.filter((patient) => patient.lastCheckIn).length
+
   return {
     metrics: [
-      {
-        label: 'Assigned cases',
-        value: String(assignedPatients.length),
-        change: `${alertCount} active alerts`,
-      },
-      {
-        label: 'High-risk cases',
-        value: String(highRiskCases),
-        change: 'High and critical cases',
-      },
-      {
-        label: 'Critical cases',
-        value: String(criticalCases),
-        change: 'Need immediate review',
-      },
-      {
-        label: 'Avg risk score',
-        value: String(averageRisk),
-        change: 'Across assigned patients',
-      },
+      { label: 'Assigned patients', value: String(assignedPatients.length), change: 'Patients currently assigned to you' },
+      { label: 'Records needing review', value: String(reviewPatients.length), change: 'Alerts, notes, or follow-up items' },
+      { label: 'Active or new alerts', value: String(alertCount), change: alertCount ? 'Review the alert queue' : 'No alerts in your queue' },
+      { label: 'Recent check-ins', value: String(recentCheckIns), change: 'Patients with check-in activity' },
     ],
-    assignedPatients: assignedPatients.sort((left, right) => right.riskScore - left.riskScore),
-    reviewPatients: assignedPatients
-      .filter((patient) => patient.riskLevel === 'high' || patient.riskLevel === 'critical')
-      .sort((left, right) => right.riskScore - left.riskScore),
+    assignedPatients: assignedPatients.sort((left, right) => right.lastCheckIn.localeCompare(left.lastCheckIn)),
+    reviewPatients,
     overview: {
-      assignedCases: assignedPatients.length,
-      highRiskCases,
-      criticalCases,
-      averageRisk,
+      assignedPatients: assignedPatients.length,
+      needsReview: reviewPatients.length,
+      activeAlerts: alertCount,
+      recentCheckIns,
     },
   }
 }

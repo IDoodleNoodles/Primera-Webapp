@@ -11,6 +11,8 @@ export const mockPatients: Patient[] = [
     id: 'patient-1',
     name: 'Maria Gomez',
     assignedDoctorId: 'doctor-1',
+    pregnancyWeek: 28,
+    trimester: 'Third trimester',
     riskLevel: 'high',
     riskScore: 82,
     status: 'escalated',
@@ -24,6 +26,8 @@ export const mockPatients: Patient[] = [
     id: 'patient-2',
     name: 'Alicia Brown',
     assignedDoctorId: 'doctor-2',
+    pregnancyWeek: 22,
+    trimester: 'Second trimester',
     riskLevel: 'moderate',
     riskScore: 54,
     status: 'monitoring',
@@ -50,6 +54,8 @@ export const mockPatients: Patient[] = [
     id: 'patient-4',
     name: 'Rosa Chen',
     assignedDoctorId: 'doctor-1',
+    pregnancyWeek: 18,
+    trimester: 'Second trimester',
     riskLevel: 'low',
     riskScore: 27,
     status: 'stable',
@@ -76,6 +82,8 @@ export const mockPatients: Patient[] = [
     id: 'patient-6',
     name: 'Elena Martinez',
     assignedDoctorId: 'doctor-3',
+    pregnancyWeek: 12,
+    trimester: 'First trimester',
     riskLevel: 'low',
     riskScore: 19,
     status: 'stable',
@@ -214,30 +222,26 @@ export function getMockAssignedPatients(doctorId: string) {
 
 export function getMockDoctorDashboard(doctorId: string) {
   const assignedPatients = getMockAssignedPatients(doctorId)
-  const highRiskCases = assignedPatients.filter(
-    (patient) => patient.riskLevel === 'high' || patient.riskLevel === 'critical',
-  ).length
-  const criticalCases = assignedPatients.filter((patient) => patient.riskLevel === 'critical').length
-  const averageRisk = assignedPatients.length
-    ? Math.round(assignedPatients.reduce((total, patient) => total + patient.riskScore, 0) / assignedPatients.length)
-    : 0
+  const reviewPatients = assignedPatients
+    .filter((patient) => patient.alertCount > 0 || patient.unreadNotes > 0 || patient.status === 'escalated')
+    .sort((left, right) => right.lastCheckIn.localeCompare(left.lastCheckIn))
+  const activeAlerts = assignedPatients.reduce((total, patient) => total + patient.alertCount, 0)
+  const recentCheckIns = assignedPatients.filter((patient) => patient.lastCheckIn).length
 
   return {
     metrics: [
-      { label: 'Assigned cases', value: String(assignedPatients.length), change: 'Prototype queue' },
-      { label: 'High-risk cases', value: String(highRiskCases), change: 'High and critical cases' },
-      { label: 'Critical cases', value: String(criticalCases), change: 'Need immediate review' },
-      { label: 'Avg risk score', value: String(averageRisk), change: 'Across assigned patients' },
+      { label: 'Assigned patients', value: String(assignedPatients.length), change: 'Patients currently assigned to you' },
+      { label: 'Records needing review', value: String(reviewPatients.length), change: 'Alerts, notes, or follow-up items' },
+      { label: 'Active or new alerts', value: String(activeAlerts), change: activeAlerts ? 'Review the alert queue' : 'No alerts in your queue' },
+      { label: 'Recent check-ins', value: String(recentCheckIns), change: 'Patients with check-in activity' },
     ],
-    assignedPatients,
-    reviewPatients: assignedPatients
-      .filter((patient) => patient.riskLevel === 'high' || patient.riskLevel === 'critical')
-      .sort((left, right) => right.riskScore - left.riskScore),
+    assignedPatients: [...assignedPatients].sort((left, right) => right.lastCheckIn.localeCompare(left.lastCheckIn)),
+    reviewPatients,
     overview: {
-      assignedCases: assignedPatients.length,
-      highRiskCases,
-      criticalCases,
-      averageRisk,
+      assignedPatients: assignedPatients.length,
+      needsReview: reviewPatients.length,
+      activeAlerts,
+      recentCheckIns,
     },
   }
 }

@@ -259,18 +259,23 @@
   color: var(--ink);
 }
 
-.risk-badge {
+.review-badge {
   border-radius: 999px;
   padding: 6px 11px;
   font-size: 0.72rem;
-  text-transform: capitalize;
   font-weight: 700;
 }
 
-.risk-badge.low { background: #d9f3e7; color: #146246; }
-.risk-badge.moderate { background: #f8ead0; color: #8a5a16; }
-.risk-badge.high { background: #f8dcc8; color: #9a4a1a; }
-.risk-badge.critical { background: var(--accent-soft); color: #8f2d3c; }
+.review-badge.reviewed { background: #d9f3e7; color: #146246; }
+.review-badge.needs-review { background: #f8ead0; color: #8a5a16; }
+
+.section-heading {
+  margin: 28px 0 12px;
+}
+
+.review-panel {
+  border-left: 4px solid var(--primary);
+}
 
 .detail-grid {
   grid-template-columns: 1.2fr 1fr;
