@@ -611,6 +611,7 @@ function toDoctorAlert(id: string, data: Record<string, unknown>): DoctorAlert {
     id,
     patientId: typeof data.patientId === 'string' ? data.patientId : '',
     doctorId: typeof data.doctorId === 'string' ? data.doctorId : '',
+    category: data.category === 'recurring-symptom' || data.category === 'approved-rule-match' ? data.category : 'clinician-defined',
     title: typeof data.title === 'string' && data.title.trim() ? data.title : 'Clinical alert',
     details: typeof data.details === 'string' ? data.details : '',
     status: data.status === 'resolved' ? 'resolved' : 'active',
@@ -676,6 +677,7 @@ export async function fetchDoctorAlertsForPatient(doctorId: string, patientId: s
 }
 
 export async function createDoctorAlert(doctorId: string, patientId: string, payload: {
+  category: DoctorAlert['category']
   title: string
   details: string
 }) {
@@ -684,6 +686,7 @@ export async function createDoctorAlert(doctorId: string, patientId: string, pay
   const created = await addDoc(collection(db, 'alerts'), {
     doctorId,
     patientId,
+    category: payload.category,
     title: payload.title,
     details: payload.details,
     status: 'active',
@@ -697,6 +700,7 @@ export async function createDoctorAlert(doctorId: string, patientId: string, pay
 }
 
 export async function updateDoctorAlert(alertId: string, payload: {
+  category: DoctorAlert['category']
   title: string
   details: string
   status: 'active' | 'resolved'
@@ -704,6 +708,7 @@ export async function updateDoctorAlert(alertId: string, payload: {
   if (!db) throw new Error('Firebase is not configured.')
 
   await updateDoc(doc(db, 'alerts', alertId), {
+    category: payload.category,
     title: payload.title,
     details: payload.details,
     status: payload.status,

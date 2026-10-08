@@ -14,7 +14,7 @@ import {
 import { useAuth } from '../context/AuthContext'
 import type { DoctorAlert, Patient, PatientClinicalEvidence } from '../types'
 
-const emptyAlert = { title: '', details: '', status: 'active' as 'active' | 'resolved' }
+const emptyAlert = { category: 'clinician-defined' as DoctorAlert['category'], title: '', details: '', status: 'active' as 'active' | 'resolved' }
 
 function reviewLabel(patient: Patient) {
   if (patient.alertCount > 0) return `${patient.alertCount} alert${patient.alertCount === 1 ? '' : 's'}`
@@ -169,7 +169,7 @@ export function PatientDetailPage() {
 
   function startAlertEdit(alert: DoctorAlert) {
     setEditingAlertId(alert.id)
-    setAlertForm({ title: alert.title, details: alert.details, status: alert.status })
+    setAlertForm({ category: alert.category, title: alert.title, details: alert.details, status: alert.status })
   }
 
   function applyScreeningSignal() {
@@ -216,6 +216,7 @@ export function PatientDetailPage() {
           <h2>{patient.name}</h2>
           <p className="muted">Assigned patient record · Last check-in {patient.lastCheckIn ? new Date(patient.lastCheckIn).toLocaleDateString() : 'not recorded'}</p>
         </div>
+        <button type="button" className="button primary" onClick={() => window.print()}>Print consultation summary</button>
       </header>
 
       {demoMode && <p className="form-message">Prototype data is shown because Firebase is not configured. Writes are disabled.</p>}
@@ -227,6 +228,22 @@ export function PatientDetailPage() {
         <div><span>Last check-in</span><strong>{patient.lastCheckIn ? new Date(patient.lastCheckIn).toLocaleDateString() : 'Not recorded'}</strong><small>{patient.status}</small></div>
         <div><span>Latest sync</span><strong>{evidence?.smartwatchHealthRecords[0]?.timestamp ? new Date(evidence.smartwatchHealthRecords[0].timestamp).toLocaleDateString() : 'Not available'}</strong><small>Health Connect / wearable</small></div>
         <div><span>Review status</span><strong>{reviewLabel(patient)}</strong><small>{patient.riskLevel} risk profile</small></div>
+      </section>
+
+      <section className="print-summary">
+        <p className="eyebrow">Primera consultation summary</p>
+        <h1>{patient.name}</h1>
+        <p>Prepared {new Date().toLocaleString()} · Coverage: {evidence?.checkins.length ? `${new Date(evidence.checkins[evidence.checkins.length - 1].timestamp).toLocaleDateString()} to ${new Date(evidence.checkins[0].timestamp).toLocaleDateString()}` : 'Recent available records'}</p>
+        <div className="print-summary-grid">
+          <div><strong>Pregnancy</strong><span>{patient.pregnancyWeek ? `${patient.pregnancyWeek} weeks` : 'Not recorded'} · {patient.trimester ?? 'Trimester not recorded'}</span></div>
+          <div><strong>Last check-in</strong><span>{patient.lastCheckIn ? new Date(patient.lastCheckIn).toLocaleString() : 'Not recorded'}</span></div>
+          <div><strong>Symptoms reported</strong><span>{patient.symptoms}</span></div>
+          <div><strong>Latest health/activity</strong><span>{evidence?.smartwatchHealthRecords[0] ? `${recordValue(evidence.smartwatchHealthRecords[0], 'Heart rate')}; ${recordValue(evidence.smartwatchHealthRecords[0], 'Steps')} steps; ${recordValue(evidence.smartwatchHealthRecords[0], 'Sleep')} sleep` : 'Not available'}</span></div>
+        </div>
+        <h2>Recent check-ins and history</h2>
+        {evidence?.checkins.slice(0, 5).map((record) => <div className="print-record" key={record.id}><strong>{record.timestamp ? new Date(record.timestamp).toLocaleString() : 'Date not recorded'} · {record.title}</strong><span>{record.summary}</span></div>)}
+        {!evidence?.checkins.length && <p>No recent check-ins recorded.</p>}
+        <p className="print-disclaimer">This summary presents patient-reported and connected information for consultation. It does not provide an automated diagnosis or medical conclusion.</p>
       </section>
 
       {(alerts.some((alert) => alert.status === 'active') || patient.status === 'escalated' || patient.unreadNotes > 0) && (
@@ -270,8 +287,10 @@ export function PatientDetailPage() {
         </div>
 
         <div className="panel">
-          <h3>Clinical alerts</h3>
+          <h3>Alerts for review</h3>
+          <p className="muted">Use observational language only. Alert triggers and terminology should be validated with the OB-GYN consultant.</p>
           <form className="admin-form" onSubmit={saveAlert}>
+            <label>Alert type<select value={alertForm.category} onChange={(event) => setAlertForm({ ...alertForm, category: event.target.value as DoctorAlert['category'] })}><option value="recurring-symptom">Recurring symptom</option><option value="approved-rule-match">Approved review rule</option><option value="clinician-defined">Clinician-defined</option></select></label>
             <label>Title<input required value={alertForm.title} onChange={(event) => setAlertForm({ ...alertForm, title: event.target.value })} /></label>
             <label>Status<select value={alertForm.status} onChange={(event) => setAlertForm({ ...alertForm, status: event.target.value as 'active' | 'resolved' })}><option value="active">Active</option><option value="resolved">Resolved</option></select></label>
             <label style={{ gridColumn: '1 / -1' }}>Details<textarea rows={3} value={alertForm.details} onChange={(event) => setAlertForm({ ...alertForm, details: event.target.value })} /></label>
