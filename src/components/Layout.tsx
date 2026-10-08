@@ -16,6 +16,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <nav className="nav">
             <NavLink to="/admin" className={baseLinkClass}>Overview</NavLink>
             <NavLink to="/admin/patients" className={baseLinkClass}>Patient Registry</NavLink>
+            <NavLink to="/admin/doctors" className={baseLinkClass}>Doctor Registry</NavLink>
             <NavLink to="/admin/assignments" className={baseLinkClass}>Assignments</NavLink>
             <NavLink to="/admin/logs" className={baseLinkClass}>Audit Trail</NavLink>
           </nav>
@@ -43,7 +44,7 @@ export function DoctorShell({ children }: { children: ReactNode }) {
         <div>
           <div className="brand"><span className="brand-mark">P</span> Primera OBGYN</div>
           <nav className="nav">
-            <NavLink to="/doctor" className={baseLinkClass}>Case Dashboard</NavLink>
+            <NavLink to="/doctor" end className={baseLinkClass}>Case Dashboard</NavLink>
             <NavLink to="/doctor/patients" className={baseLinkClass}>Assigned Patients</NavLink>
             <NavLink to="/doctor/alerts" className={baseLinkClass}>Risk Alerts</NavLink>
           </nav>
@@ -52,7 +53,7 @@ export function DoctorShell({ children }: { children: ReactNode }) {
         <div className="sidebar-footer">
           <div className="user-tag">{user?.name}</div>
           <button className="button subtle" onClick={() => logout()}>
-            Sign out
+            Sign Out
           </button>
         </div>
       </aside>

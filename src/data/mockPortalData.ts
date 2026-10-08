@@ -59,13 +59,64 @@ export const mockPatients: Patient[] = [
     alertCount: 0,
     unreadNotes: 0,
   },
+  {
+    id: 'patient-5',
+    name: 'Nia Thompson',
+    assignedDoctorId: 'doctor-2',
+    riskLevel: 'moderate',
+    riskScore: 48,
+    status: 'monitoring',
+    lastCheckIn: '2026-08-20T11:30:00Z',
+    symptoms: 2,
+    vitals: { heartRate: 88, oxygen: 98, bloodPressure: 121, temperature: 98.4 },
+    alertCount: 1,
+    unreadNotes: 1,
+  },
+  {
+    id: 'patient-6',
+    name: 'Elena Martinez',
+    assignedDoctorId: 'doctor-3',
+    riskLevel: 'low',
+    riskScore: 19,
+    status: 'stable',
+    lastCheckIn: '2026-08-21T08:20:00Z',
+    symptoms: 0,
+    vitals: { heartRate: 76, oxygen: 99, bloodPressure: 112, temperature: 98.0 },
+    alertCount: 0,
+    unreadNotes: 0,
+  },
+  {
+    id: 'patient-7',
+    name: 'Grace Okafor',
+    assignedDoctorId: null,
+    riskLevel: 'high',
+    riskScore: 76,
+    status: 'escalated',
+    lastCheckIn: '2026-08-17T16:10:00Z',
+    symptoms: 5,
+    vitals: { heartRate: 101, oxygen: 95, bloodPressure: 134, temperature: 99.0 },
+    alertCount: 2,
+    unreadNotes: 2,
+  },
+  {
+    id: 'patient-8',
+    name: 'Sofia Anderson',
+    assignedDoctorId: 'doctor-1',
+    riskLevel: 'moderate',
+    riskScore: 43,
+    status: 'monitoring',
+    lastCheckIn: '2026-08-19T13:40:00Z',
+    symptoms: 2,
+    vitals: { heartRate: 90, oxygen: 98, bloodPressure: 119, temperature: 98.5 },
+    alertCount: 1,
+    unreadNotes: 0,
+  },
 ]
 
 export const mockAdminMetrics: DashboardMetric[] = [
   { label: 'Active OBGYNs', value: '18', change: '+2 this month' },
-  { label: 'High-risk pregnancies', value: '12', change: '-4 from last week' },
   { label: 'Unassigned cases', value: '5', change: '2 require review' },
-  { label: 'Alerts resolved', value: '87%', change: '+11%' },
+  { label: 'Audit events', value: '3', change: 'Recent portal activity' },
 ]
 
 export const mockActivityLog: AuditLog[] = [
@@ -128,14 +179,16 @@ export function getMockAdminDashboard() {
   }))
 
   return {
-    metrics: mockAdminMetrics.map((metric) => metric.label === 'High-risk pregnancies'
-      ? { ...metric, label: 'Active patient accounts', value: String(adminPatients.length), change: `${adminPatients.length} total patient accounts` }
-      : metric),
+    metrics: [
+      mockAdminMetrics[0],
+      { label: 'Active patient accounts', value: String(adminPatients.length), change: `${adminPatients.length} total patient accounts` },
+      mockAdminMetrics[1],
+      mockAdminMetrics[2],
+    ],
     overview: {
       totalCases: adminPatients.length,
       totalAssigned: adminPatients.filter((patient) => patient.assignedDoctorId).length,
       unassigned: adminPatients.filter((patient) => !patient.assignedDoctorId).length,
-      averageRisk: 0,
     },
     activityLog: mockActivityLog,
     patients: adminPatients,

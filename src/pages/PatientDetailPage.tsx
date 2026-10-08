@@ -39,27 +39,31 @@ export function PatientDetailPage() {
 
     if (demoMode) {
       const result = getMockPatientForDoctor(user.uid, patientId)
-      setPatient(result)
-      setPatientForm(result ? {
-        riskLevel: result.riskLevel,
-        riskScore: result.riskScore,
-        status: result.status,
-        symptoms: result.symptoms,
-        vitals: result.vitals,
-      } : null)
-      setAlerts(getMockDoctorAlerts(user.uid, patientId))
-      setEvidence(null)
-      setLoading(false)
+      Promise.resolve().then(() => {
+        setPatient(result)
+        setPatientForm(result ? {
+          riskLevel: result.riskLevel,
+          riskScore: result.riskScore,
+          status: result.status,
+          symptoms: result.symptoms,
+          vitals: result.vitals,
+        } : null)
+        setAlerts(getMockDoctorAlerts(user.uid, patientId))
+        setEvidence(null)
+        setLoading(false)
+      })
       return
     }
 
-    setLoading(true)
+    Promise.resolve().then(() => setLoading(true))
     Promise.allSettled([
       fetchPatientByIdForDoctor(user.uid, patientId),
       fetchDoctorAlertsForPatient(user.uid, patientId),
       fetchPatientClinicalEvidence(user.uid, patientId),
     ])
       .then(([patientResult, alertsResult, evidenceResult]) => {
+        const rejected = [patientResult, alertsResult, evidenceResult].some((result) => result.status === 'rejected')
+        if (rejected) setError('Some patient data could not be loaded. Refresh and try again.')
         const result = patientResult.status === 'fulfilled' ? patientResult.value : null
         setPatient(result)
         setPatientForm(result ? {

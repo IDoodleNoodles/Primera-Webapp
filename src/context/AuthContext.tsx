@@ -37,25 +37,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return
       }
 
-      const tokenResult = await firebaseUser.getIdTokenResult()
-      const role = tokenResult.claims.role as Role | undefined
-      const profile = await getDoc(doc(firestore, 'users', firebaseUser.uid))
-      const profileData = profile.data()
+      try {
+        const tokenResult = await firebaseUser.getIdTokenResult()
+        const role = tokenResult.claims.role as Role | undefined
+        const profile = await getDoc(doc(firestore, 'users', firebaseUser.uid))
+        const profileData = profile.data()
 
-      if (role !== 'admin' && role !== 'doctor') {
-        setError('This portal is restricted to admin and OBGYN accounts.')
-        await signOut(firebaseAuth)
+        if (role !== 'admin' && role !== 'doctor') {
+          setError('This portal is restricted to admin and OBGYN accounts.')
+          await signOut(firebaseAuth)
+          setUser(null)
+        } else {
+          setUser({
+            uid: firebaseUser.uid,
+            name: typeof profileData?.name === 'string' && profileData.name.trim()
+              ? profileData.name.trim()
+              : firebaseUser.displayName ?? firebaseUser.email ?? 'Portal user',
+            email: firebaseUser.email ?? '',
+            role,
+          })
+        }
+      } catch (authError) {
         setUser(null)
-      } else {
-        setUser({
-          uid: firebaseUser.uid,
-          name: profileData?.name ?? firebaseUser.displayName ?? firebaseUser.email ?? 'Portal user',
-          email: firebaseUser.email ?? '',
-          role,
-        })
+        setError(authError instanceof Error ? authError.message : 'Unable to load portal access.')
+        await signOut(firebaseAuth).catch(() => undefined)
+      } finally {
+        setLoading(false)
       }
-
-      setLoading(false)
     })
   }, [])
 

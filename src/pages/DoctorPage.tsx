@@ -25,18 +25,20 @@ export function DoctorPage() {
 
   useEffect(() => {
     if (!user || user.role !== 'doctor') {
-      setLoading(false)
+      Promise.resolve().then(() => setLoading(false))
       return
     }
 
     if (demoMode) {
-      setDashboard(getMockDoctorDashboard(user.uid))
-      setAlerts(getMockDoctorAlerts(user.uid))
-      setLoading(false)
+      Promise.resolve().then(() => {
+        setDashboard(getMockDoctorDashboard(user.uid))
+        setAlerts(getMockDoctorAlerts(user.uid))
+        setLoading(false)
+      })
       return
     }
 
-    setLoading(true)
+    Promise.resolve().then(() => setLoading(true))
     Promise.all([
       fetchDoctorDashboardData(user.uid),
       fetchDoctorAlerts(user.uid),
