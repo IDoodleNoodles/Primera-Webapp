@@ -263,12 +263,12 @@ export function respondToDoctorLinkRequest(requestId: string, decision: 'accept'
   return callAdminFunction<{ success: boolean }>('respondToDoctorLinkRequest', { requestId, decision })
 }
 
-export async function fetchStaffAccounts(): Promise<StaffAccount[]> {
+export async function fetchStaffAccounts(search = ''): Promise<StaffAccount[]> {
   if (!firebaseConfigured || !db) return []
   try {
-    return await callAdminFunction<StaffAccount[]>('fetchAdminStaffDirectory', {})
+    return await fetchDirectoryPages<StaffAccount>('fetchAdminStaffDirectory', search)
   } catch {
-    const snapshot = await getDocs(collection(db, 'users'))
+    const snapshot = await getDocs(query(collection(db, 'users'), where('role', 'in', ['doctor', 'admin']), limit(100)))
     return snapshot.docs
       .filter((entry) => entry.data().role === 'doctor' || entry.data().role === 'admin')
       .map((entry): StaffAccount => ({
@@ -290,6 +290,7 @@ export async function createPatient(input: PatientInput) {
     role: 'patient',
     createdAt: serverTimestamp(),
   })
+  await writeAdminAudit('Created patient account', reference.id, 'patient')
   return { id: reference.id, ...input }
 }
 
@@ -300,6 +301,7 @@ export async function updatePatient(patientId: string, input: PatientInput) {
     // Normalize legacy records that were created without a role.
     role: 'patient',
   })
+  await writeAdminAudit('Updated patient account', patientId, 'patient')
   return { id: patientId, ...input }
 }
 
@@ -333,6 +335,7 @@ export async function assignPatient(patientId: string, doctorId: string | null) 
     }, { merge: true })
   }
   await batch.commit()
+  await writeAdminAudit(doctorId ? 'Assigned patient' : 'Unassigned patient', patientId, 'assignment')
 }
 
 async function callAdminFunction<T>(name: string, data: object) {
@@ -340,6 +343,25 @@ async function callAdminFunction<T>(name: string, data: object) {
   const functions = getFunctions()
   const callable = httpsCallable<object, T>(functions, name)
   return (await callable(data)).data
+}
+
+async function writeAdminAudit(action: string, targetId: string, targetType: 'patient' | 'doctor' | 'assignment' | 'system') {
+  await callAdminFunction<{ success: boolean }>('writeAuditLog', { action, targetId, targetType })
+}
+
+async function fetchDirectoryPages<T>(name: 'fetchAdminStaffDirectory' | 'fetchAdminPatientDirectory', search = '') {
+  const items: T[] = []
+  let pageToken: string | null = null
+  do {
+    const page: { items: T[]; nextPageToken: string | null } = await callAdminFunction(name, {
+      pageSize: 100,
+      pageToken,
+      search,
+    })
+    items.push(...page.items)
+    pageToken = page.nextPageToken
+  } while (pageToken)
+  return items
 }
 
 export function createStaffAccount(data: { email: string; password: string; name: string; role: 'admin' | 'doctor' }) {
@@ -356,6 +378,7 @@ export async function updateDoctorName(uid: string, name: string) {
     updateDoc(doc(db, 'users', uid), { name, role: 'doctor' }),
     updateDoc(doc(db, 'doctors', uid), { name }),
   ])
+  await writeAdminAudit('Updated doctor account', uid, 'doctor')
   return { uid }
 }
 
@@ -367,17 +390,19 @@ export function setStaffAccountStatus(uid: string, active: boolean) {
   return callAdminFunction<{ uid: string; active: boolean }>('setStaffAccountStatus', { uid, active })
 }
 
-export function fetchAdminPatientDirectory() {
+export function fetchAdminPatientDirectory(search = '') {
   if (!db) return Promise.resolve([] as AdminPatient[])
+  const firestore = db
 
-  return getDocs(collection(db, 'users')).then((snapshot) => snapshot.docs
-    .filter((entry) => isPatientProfile(entry.data()))
-    .map((entry): AdminPatient => ({
+  return fetchDirectoryPages<AdminPatient>('fetchAdminPatientDirectory', search).catch(async () => {
+    const snapshot = await getDocs(query(collection(firestore, 'users'), where('role', '==', 'patient'), limit(100)))
+    return snapshot.docs.map((entry): AdminPatient => ({
       id: entry.id,
       name: readProfileName(entry.data(), 'Unnamed patient'),
       assignedDoctorId: typeof entry.data().assignedDoctorId === 'string' ? entry.data().assignedDoctorId : null,
       active: entry.data().active !== false,
-    })))
+    }))
+  })
 }
 
 type FirestorePatient = Partial<Patient> & {
@@ -493,12 +518,12 @@ export async function fetchVisiblePatients(role: 'admin' | 'doctor', userId: str
   return Array.from(patientsById.values())
 }
 
-export async function fetchAdminDashboardData(userId: string): Promise<AdminDashboardData> {
+export async function fetchAdminDashboardData(userId: string, patientSearch = ''): Promise<AdminDashboardData> {
   if (!db) return getEmptyAdminDashboard()
 
   void userId
   const firestore = db
-  const visiblePatients = await fetchAdminPatientDirectory()
+  const visiblePatients = await fetchAdminPatientDirectory(patientSearch)
 
   const [doctorSnapshot, auditSnapshot] = await Promise.all([
     getDocs(collection(firestore, 'doctors')),
