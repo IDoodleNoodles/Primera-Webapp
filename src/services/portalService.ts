@@ -392,6 +392,10 @@ export function setStaffAccountStatus(uid: string, active: boolean) {
   return callAdminFunction<{ uid: string; active: boolean }>('setStaffAccountStatus', { uid, active })
 }
 
+export function resetStaffPassword(uid: string) {
+  return callAdminFunction<{ success: boolean; maskedEmail: string; resetLink: string }>('resetStaffPassword', { uid })
+}
+
 export function fetchAdminPatientDirectory(search = '') {
   if (!db) return Promise.resolve([] as AdminPatient[])
   const firestore = db

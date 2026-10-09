@@ -208,6 +208,25 @@ export const deleteStaffAccount = onCall(async (request) => {
   if (!data.uid) throw new HttpsError('invalid-argument', 'uid is required.')
   if (data.uid === request.auth?.uid) throw new HttpsError('failed-precondition', 'You cannot delete your own account.')
 
+  const [assignments, assignedPatients, assignedUsers] = await Promise.all([
+    db.collection('assignments').where('doctorId', '==', data.uid).get(),
+    db.collection(`doctors/${data.uid}/assignedPatients`).get(),
+    db.collection('users').where('assignedDoctorId', '==', data.uid).get(),
+  ])
+  const cleanupOperations = [
+    ...assignments.docs.map((entry) => ({ ref: entry.ref, action: 'delete' as const })),
+    ...assignedPatients.docs.map((entry) => ({ ref: entry.ref, action: 'delete' as const })),
+    ...assignedUsers.docs.map((entry) => ({ ref: entry.ref, action: 'unassign' as const })),
+  ]
+  for (let index = 0; index < cleanupOperations.length; index += 450) {
+    const batch = db.batch()
+    cleanupOperations.slice(index, index + 450).forEach(({ ref, action }) => {
+      if (action === 'delete') batch.delete(ref)
+      else batch.update(ref, { assignedDoctorId: null, updatedAt: FieldValue.serverTimestamp() })
+    })
+    await batch.commit()
+  }
+
   await auth.deleteUser(data.uid)
   await Promise.all([
     db.doc(`users/${data.uid}`).delete(),
@@ -304,14 +323,17 @@ export const resetStaffPassword = onCall(async (request) => {
   if (!data.uid) throw new HttpsError('invalid-argument', 'uid is required.')
 
   const user = await auth.getUser(data.uid)
+  const profile = await db.doc(`users/${data.uid}`).get()
+  if (!allowedRoles.has(profile.data()?.role)) {
+    throw new HttpsError('failed-precondition', 'Password reset is only available for staff accounts.')
+  }
   if (!user.email) throw new HttpsError('failed-precondition', 'This staff account has no email address for password recovery.')
 
-  // Never return a credential-bearing reset URL to the client.
-  await auth.generatePasswordResetLink(user.email)
+  const resetLink = await auth.generatePasswordResetLink(user.email)
   await writeAdminAudit(request, 'Issued staff password reset', data.uid, 'system')
   const [local, domain] = user.email.split('@')
   const maskedEmail = `${local.slice(0, 1)}***@${domain}`
-  return { success: true, maskedEmail }
+  return { success: true, maskedEmail, resetLink }
 })
 
 export const writeAuditLog = onCall(async (request) => {

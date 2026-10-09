@@ -12,6 +12,7 @@ import {
   deleteStaffAccount,
   fetchAdminDashboardData,
   fetchStaffAccounts,
+  resetStaffPassword,
   setStaffAccountStatus,
   updatePatient,
   updateDoctorName,
@@ -24,7 +25,7 @@ const emptyPatient: PatientInput = {
 }
 
 const emptyStaff = { name: '', email: '', password: '', role: 'doctor' as 'admin' | 'doctor' }
-type Operation = 'patient-save' | 'patient-delete' | 'patient-assign' | 'staff-save' | 'staff-status' | 'staff-delete'
+type Operation = 'patient-save' | 'patient-delete' | 'patient-assign' | 'staff-save' | 'staff-status' | 'staff-delete' | 'staff-reset'
 type Confirmation = {
   title: string
   description: string
@@ -192,6 +193,19 @@ export function AdminPage() {
     } catch (operationError) { showError(operationError) } finally { setBusyOperation(null) }
   }
 
+  async function resetStaff(account: StaffAccount) {
+    setBusyOperation('staff-reset'); setError('')
+    try {
+      const result = await resetStaffPassword(account.uid)
+      try {
+        await navigator.clipboard.writeText(result.resetLink)
+        setMessage(`Password reset link copied for ${account.name} (${result.maskedEmail}). Share it with the staff member securely.`)
+      } catch {
+        setMessage(`Password reset link for ${account.name}: ${result.resetLink}`)
+      }
+    } catch (operationError) { showError(operationError) } finally { setBusyOperation(null) }
+  }
+
   async function removeStaff(account: StaffAccount) {
     setConfirmation({
       title: `Delete ${account.name}'s staff account?`,
@@ -303,7 +317,7 @@ export function AdminPage() {
           <div className="form-actions"><button className="button primary" disabled={isBusy('staff-save')}>{isBusy('staff-save') ? 'Saving...' : editingStaffId ? (section === 'doctors' ? 'Update doctor' : 'Update account') : (section === 'doctors' ? 'Create doctor' : 'Create account')}</button>{editingStaffId && <button type="button" className="button" onClick={() => { setEditingStaffId(null); setStaffForm(emptyStaff) }}>Cancel</button>}</div>
         </form>
         <label>Search {section === 'doctors' ? 'doctors' : 'staff'}<input type="search" value={staffSearch} onChange={(event) => setStaffSearch(event.target.value)} placeholder="Search by name" /></label>
-        <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>{section === 'doctors' ? 'Doctor name' : 'Name'}</th><th>Email</th><th>{section === 'doctors' ? 'Specialty' : 'Role'}</th><th>Status</th><th>Actions</th></tr></thead><tbody>{visibleStaff.map((account) => <tr key={account.uid}><td>{account.name}</td><td>{account.email || 'No email on file'}</td><td>{section === 'doctors' ? (account.specialty || 'OBGYN') : account.role}</td><td>{account.active ? 'Active' : 'Disabled'}</td><td className="table-actions"><button className="button" disabled={demoMode} onClick={() => { setEditingStaffId(account.uid); setStaffForm({ name: account.name, email: account.email, password: '', role: account.role }) }}>Edit</button><button className="button" disabled={isBusy('staff-status')} onClick={() => toggleStaff(account)}>{account.active ? 'Disable' : 'Enable'}</button><button className="button danger" disabled={isBusy('staff-delete')} onClick={() => removeStaff(account)}>Delete</button></td></tr>)}</tbody></table></div>
+        <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>{section === 'doctors' ? 'Doctor name' : 'Name'}</th><th>Email</th><th>{section === 'doctors' ? 'Specialty' : 'Role'}</th><th>Status</th><th>Actions</th></tr></thead><tbody>{visibleStaff.map((account) => <tr key={account.uid}><td>{account.name}</td><td>{account.email || 'No email on file'}</td><td>{section === 'doctors' ? (account.specialty || 'OBGYN') : account.role}</td><td>{account.active ? 'Active' : 'Disabled'}</td><td className="table-actions"><button className="button" disabled={demoMode} onClick={() => { setEditingStaffId(account.uid); setStaffForm({ name: account.name, email: account.email, password: '', role: account.role }) }}>Edit</button><button className="button" disabled={isBusy('staff-status')} onClick={() => toggleStaff(account)}>{account.active ? 'Disable' : 'Enable'}</button><button className="button" disabled={isBusy('staff-reset')} onClick={() => resetStaff(account)}>Reset password</button><button className="button danger" disabled={isBusy('staff-delete')} onClick={() => removeStaff(account)}>Delete</button></td></tr>)}</tbody></table></div>
       </section>
 
       <section className="metric-grid">
