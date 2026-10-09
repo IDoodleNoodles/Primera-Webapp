@@ -171,12 +171,18 @@ export const setStaffAccountStatus = onCall(async (request) => {
     throw new HttpsError('invalid-argument', 'uid and active status are required.')
   }
 
+  const staffProfile = await db.doc(`users/${data.uid}`).get()
   await auth.updateUser(data.uid, { disabled: !data.active })
   await db.doc(`users/${data.uid}`).set({ active: data.active }, { merge: true })
   await db.doc(`doctors/${data.uid}`).set({ active: data.active }, { merge: true })
   await db.doc(`admins/${data.uid}`).set({ active: data.active }, { merge: true })
 
-  await writeAdminAudit(request, `${data.active ? 'Enabled' : 'Disabled'} staff account`, data.uid, 'doctor')
+  await writeAdminAudit(
+    request,
+    `${data.active ? 'Enabled' : 'Disabled'} staff account`,
+    data.uid,
+    staffProfile.data()?.role === 'doctor' ? 'doctor' : 'system',
+  )
   return { uid: data.uid, active: data.active }
 })
 
@@ -208,7 +214,8 @@ export const deleteStaffAccount = onCall(async (request) => {
   if (!data.uid) throw new HttpsError('invalid-argument', 'uid is required.')
   if (data.uid === request.auth?.uid) throw new HttpsError('failed-precondition', 'You cannot delete your own account.')
 
-  const [assignments, assignedPatients, assignedUsers] = await Promise.all([
+  const [staffProfile, assignments, assignedPatients, assignedUsers] = await Promise.all([
+    db.doc(`users/${data.uid}`).get(),
     db.collection('assignments').where('doctorId', '==', data.uid).get(),
     db.collection(`doctors/${data.uid}/assignedPatients`).get(),
     db.collection('users').where('assignedDoctorId', '==', data.uid).get(),
@@ -234,7 +241,7 @@ export const deleteStaffAccount = onCall(async (request) => {
     db.doc(`admins/${data.uid}`).delete(),
   ])
 
-  await writeAdminAudit(request, 'Deleted staff account', data.uid, 'doctor')
+  await writeAdminAudit(request, 'Deleted staff account', data.uid, staffProfile.data()?.role === 'doctor' ? 'doctor' : 'system')
   return { uid: data.uid }
 })
 
@@ -248,9 +255,9 @@ export const deletePatientAccount = onCall(async (request) => {
   const doctorIds = assignments.docs
     .map((entry) => entry.data().doctorId)
     .filter((doctorId): doctorId is string => typeof doctorId === 'string')
-  const dependentCollections = ['alerts', 'activity_logs', 'transcriptions', 'checkins', 'goals']
+  const dependentCollections = ['alerts', 'activity_logs', 'auditLogs', 'transcriptions', 'checkins', 'goals']
   const dependentSnapshots = await Promise.all(dependentCollections.map((name) => {
-    const field = name === 'alerts' ? 'patientId' : 'userId'
+    const field = name === 'alerts' ? 'patientId' : name === 'auditLogs' ? 'targetId' : 'userId'
     return db.collection(name).where(field, '==', data.patientId).get()
   }))
   const batch = db.batch()
