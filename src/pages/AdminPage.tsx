@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom'
 import { firebaseConfigured } from '../firebase'
 import { useAuth } from '../context/AuthContext'
 import { getMockAdminDashboard, getMockStaffAccounts } from '../data/mockPortalData'
+import { adminSection } from './adminSection'
 import {
   assignPatient,
   createPatient,
@@ -11,7 +12,6 @@ import {
   deleteStaffAccount,
   fetchAdminDashboardData,
   fetchStaffAccounts,
-  getEmptyAdminDashboard,
   setStaffAccountStatus,
   updatePatient,
   updateDoctorName,
@@ -32,14 +32,6 @@ type Confirmation = {
   action: () => Promise<void>
 }
 
-function adminSection(pathname: string) {
-  if (pathname.includes('/patients')) return 'patients'
-  if (pathname.includes('/doctors')) return 'doctors'
-  if (pathname.includes('/assignments')) return 'assignments'
-  if (pathname.includes('/logs')) return 'logs'
-  return 'overview'
-}
-
 export function AdminPage() {
   const { user } = useAuth()
   const section = adminSection(useLocation().pathname)
@@ -54,7 +46,12 @@ export function AdminPage() {
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
-  const [loading, setLoading] = useState(true)
+  const [dashboardLoading, setDashboardLoading] = useState(true)
+  const [staffLoading, setStaffLoading] = useState(true)
+  const [dashboardError, setDashboardError] = useState('')
+  const [staffError, setStaffError] = useState('')
+  const [dashboardRetry, setDashboardRetry] = useState(0)
+  const [staffRetry, setStaffRetry] = useState(0)
   const [patientSearch, setPatientSearch] = useState('')
   const [staffSearch, setStaffSearch] = useState('')
   const visibleStaff = section === 'doctors' ? staff.filter((account) => account.role === 'doctor') : staff
@@ -65,30 +62,36 @@ export function AdminPage() {
       return
     }
 
+    setDashboardLoading(true)
+    setDashboardError('')
     if (demoMode) {
       Promise.resolve(getMockAdminDashboard()).then((nextDashboard) => {
         setDashboard(nextDashboard)
-        setLoading(false)
-      })
+      }).catch(() => setDashboardError('Unable to load prototype operations data.'))
+        .finally(() => setDashboardLoading(false))
       return
     }
 
     fetchAdminDashboardData(user.uid, patientSearch)
       .then(setDashboard)
-      .catch(() => {
-        setDashboard(getEmptyAdminDashboard())
-        setError('Unable to load live operations data.')
-      })
-      .finally(() => setLoading(false))
-  }, [user, demoMode, patientSearch])
+      .catch(() => setDashboardError('Unable to load live operations data.'))
+      .finally(() => setDashboardLoading(false))
+  }, [user, demoMode, patientSearch, dashboardRetry])
 
   useEffect(() => {
+    setStaffLoading(true)
+    setStaffError('')
     if (demoMode) {
       Promise.resolve(getMockStaffAccounts()).then(setStaff)
+        .catch(() => setStaffError('Unable to load prototype staff accounts.'))
+        .finally(() => setStaffLoading(false))
       return
     }
-    fetchStaffAccounts(staffSearch).then(setStaff).catch(() => setError('Unable to load staff accounts.'))
-  }, [demoMode, staffSearch])
+    fetchStaffAccounts(staffSearch)
+      .then(setStaff)
+      .catch(() => setStaffError('Unable to load staff accounts.'))
+      .finally(() => setStaffLoading(false))
+  }, [demoMode, staffSearch, staffRetry])
 
   function showError(value: unknown) {
     setMessage('')
@@ -225,13 +228,26 @@ export function AdminPage() {
     setPatientForm({ name: patient.name, assignedDoctorId: patient.assignedDoctorId, active: patient.active, activationStatus: patient.activationStatus })
   }
 
-  if (loading || !dashboard) {
+  if (dashboardLoading && !dashboard) {
     return (
       <div className="page">
         <section className="panel">
           <p className="eyebrow">Loading</p>
           <h2>Fetching operations data</h2>
           <p className="muted">Gathering real-time dashboard metrics from Firebase.</p>
+        </section>
+      </div>
+    )
+  }
+
+  if (!dashboard) {
+    return (
+      <div className="page">
+        <section className="panel">
+          <p className="eyebrow">Operations unavailable</p>
+          <h2>We could not load the admin dashboard</h2>
+          <p className="muted">{dashboardError || 'Try again to reconnect to the operations data.'}</p>
+          <button className="button primary" type="button" onClick={() => setDashboardRetry((value) => value + 1)}>Retry dashboard</button>
         </section>
       </div>
     )
@@ -255,6 +271,10 @@ export function AdminPage() {
       {demoMode && <p className="form-message">Prototype data is shown because Firebase is not configured. Writes are disabled.</p>}
       {message && <p className="form-message">{message}</p>}
       {error && <p className="form-error">{error}</p>}
+      {dashboardError && <p className="form-error">{dashboardError} <button className="button" type="button" onClick={() => setDashboardRetry((value) => value + 1)}>Retry dashboard</button></p>}
+      {staffError && <p className="form-error">{staffError} <button className="button" type="button" onClick={() => setStaffRetry((value) => value + 1)}>Retry staff accounts</button></p>}
+      {dashboardLoading && <p className="muted">Refreshing dashboard data...</p>}
+      {staffLoading && <p className="muted">Loading staff accounts...</p>}
 
       {section === 'patients' && (
       <section className="panel admin-management">

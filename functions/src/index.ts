@@ -304,8 +304,14 @@ export const resetStaffPassword = onCall(async (request) => {
   if (!data.uid) throw new HttpsError('invalid-argument', 'uid is required.')
 
   const user = await auth.getUser(data.uid)
-  const link = await auth.generatePasswordResetLink(user.email ?? '')
-  return { link }
+  if (!user.email) throw new HttpsError('failed-precondition', 'This staff account has no email address for password recovery.')
+
+  // Never return a credential-bearing reset URL to the client.
+  await auth.generatePasswordResetLink(user.email)
+  await writeAdminAudit(request, 'Issued staff password reset', data.uid, 'system')
+  const [local, domain] = user.email.split('@')
+  const maskedEmail = `${local.slice(0, 1)}***@${domain}`
+  return { success: true, maskedEmail }
 })
 
 export const writeAuditLog = onCall(async (request) => {
