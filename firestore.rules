@@ -21,7 +21,7 @@ service cloud.firestore {
           || hasDeterministicAssignment(patientId)
         );
     }
-      function canOwnerUpdateProfile(userId) {
+    function canOwnerUpdateProfile(userId) {
         return isOwner(userId)
           && resource.data.role == 'patient'
           && request.resource.data.role == 'patient'
@@ -29,13 +29,8 @@ service cloud.firestore {
           && request.resource.data.assignedDoctorId == resource.data.assignedDoctorId
           && request.resource.data.diff(resource.data).changedKeys().hasOnly([
             'name',
-            'riskLevel',
-            'riskScore',
-            'status',
             'symptoms',
-            'vitals',
-            'updatedAt',
-            'lastCheckIn'
+            'name'
           ]);
       }
     function isAssignedDoctorForResource() {
@@ -69,6 +64,14 @@ service cloud.firestore {
           'role',
           'updatedAt'
         ]);
+    }
+    function canDoctorUpdateLinkRequest() {
+      return isDoctor()
+        && resource.data.doctorId == request.auth.uid
+        && request.resource.data.doctorId == resource.data.doctorId
+        && request.resource.data.patientId == resource.data.patientId
+        && (request.resource.data.status == 'accepted' || request.resource.data.status == 'declined')
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly(['status', 'respondedAt']);
     }
 
     match /users/{userId} {
@@ -120,8 +123,11 @@ service cloud.firestore {
       allow read: if isAdmin()
         || (isDoctor() && resource.data.doctorId == request.auth.uid)
         || isOwner(resource.data.patientId);
-      allow update: if isOwner(resource.data.patientId)
-        || (isDoctor() && resource.data.doctorId == request.auth.uid);
+      allow update: if (isOwner(resource.data.patientId)
+          && resource.data.status == 'pending'
+          && request.resource.data.status == 'cancelled'
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly(['status']))
+        || canDoctorUpdateLinkRequest();
       allow delete: if isAdmin() || isOwner(resource.data.patientId);
     }
 

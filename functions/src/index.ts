@@ -2,6 +2,7 @@ import { onCall, HttpsError } from 'firebase-functions/v2/https'
 import { getApps, initializeApp } from 'firebase-admin/app'
 import { getAuth } from 'firebase-admin/auth'
 import { getFirestore, FieldValue, FieldPath } from 'firebase-admin/firestore'
+import type { DocumentReference } from 'firebase-admin/firestore'
 
 if (!getApps().length) initializeApp()
 
@@ -34,6 +35,13 @@ function requireAdmin(request: { auth?: { token?: Record<string, unknown> } }) {
   }
 }
 
+function requireStaff(request: { auth?: { token?: Record<string, unknown> } }) {
+  const role = request.auth?.token?.role
+  if (role !== 'admin' && role !== 'doctor') {
+    throw new HttpsError('permission-denied', 'Only staff can write audit logs.')
+  }
+}
+
 async function writeAdminAudit(request: { auth?: { uid?: string; token?: Record<string, unknown> } }, action: string, targetId: string, targetType: 'patient' | 'doctor' | 'assignment' | 'system') {
   if (!request.auth?.uid) throw new HttpsError('unauthenticated', 'Authentication is required.')
   await db.collection('auditLogs').add({
@@ -52,6 +60,17 @@ function pageSize(value: unknown) {
 
 function pageCursor(value: unknown) {
   return typeof value === 'string' && value.length <= 200 ? value : undefined
+}
+
+async function commitOperations(operations: Array<{ ref: DocumentReference; action: 'delete' | 'unassign' }>) {
+  for (let index = 0; index < operations.length; index += 450) {
+    const batch = db.batch()
+    operations.slice(index, index + 450).forEach(({ ref, action }) => {
+      if (action === 'delete') batch.delete(ref)
+      else batch.update(ref, { assignedDoctorId: null, updatedAt: FieldValue.serverTimestamp() })
+    })
+    await batch.commit()
+  }
 }
 
 export const createStaffAccount = onCall(async (request) => {
@@ -199,7 +218,19 @@ export const updateStaffAccount = onCall(async (request) => {
   const previousProfile = await db.doc(`users/${data.uid}`).get()
   const previousRole = previousProfile.data()?.role
   await db.doc(`users/${data.uid}`).set({ name: data.name, role: data.role }, { merge: true })
-  if (previousRole === 'doctor' && data.role === 'admin') await db.doc(`doctors/${data.uid}`).delete()
+  if (previousRole === 'doctor' && data.role === 'admin') {
+    const [assignments, assignedPatients, assignedUsers] = await Promise.all([
+      db.collection('assignments').where('doctorId', '==', data.uid).get(),
+      db.collection(`doctors/${data.uid}/assignedPatients`).get(),
+      db.collection('users').where('assignedDoctorId', '==', data.uid).get(),
+    ])
+    await commitOperations([
+      ...assignments.docs.map((entry) => ({ ref: entry.ref, action: 'delete' as const })),
+      ...assignedPatients.docs.map((entry) => ({ ref: entry.ref, action: 'delete' as const })),
+      ...assignedUsers.docs.map((entry) => ({ ref: entry.ref, action: 'unassign' as const })),
+    ])
+    await db.doc(`doctors/${data.uid}`).delete()
+  }
   if (previousRole === 'admin' && data.role === 'doctor') await db.doc(`admins/${data.uid}`).delete()
   await db.doc(`${data.role === 'doctor' ? 'doctors' : 'admins'}/${data.uid}`).set({ name: data.name }, { merge: true })
 
@@ -260,14 +291,14 @@ export const deletePatientAccount = onCall(async (request) => {
     const field = name === 'alerts' ? 'patientId' : name === 'auditLogs' ? 'targetId' : 'userId'
     return db.collection(name).where(field, '==', data.patientId).get()
   }))
-  const batch = db.batch()
-  batch.delete(db.doc(`users/${data.patientId}`))
-  assignments.docs.forEach((entry) => batch.delete(entry.ref))
-  doctorIds.forEach((doctorId) => batch.delete(db.doc(`doctors/${doctorId}/assignedPatients/${data.patientId}`)))
-  dependentSnapshots.forEach((snapshot) => snapshot.docs.forEach((entry) => batch.delete(entry.ref)))
   const smartwatch = await db.collection(`users/${data.patientId}/smartwatchHealthRecords`).get()
-  smartwatch.docs.forEach((entry) => batch.delete(entry.ref))
-  await batch.commit()
+  await commitOperations([
+    { ref: db.doc(`users/${data.patientId}`), action: 'delete' },
+    ...assignments.docs.map((entry) => ({ ref: entry.ref, action: 'delete' as const })),
+    ...doctorIds.map((doctorId) => ({ ref: db.doc(`doctors/${doctorId}/assignedPatients/${data.patientId}`), action: 'delete' as const })),
+    ...dependentSnapshots.flatMap((snapshot) => snapshot.docs.map((entry) => ({ ref: entry.ref, action: 'delete' as const }))),
+    ...smartwatch.docs.map((entry) => ({ ref: entry.ref, action: 'delete' as const })),
+  ])
 
   await writeAdminAudit(request, 'Deleted patient account', data.patientId, 'patient')
   return { id: data.patientId }
@@ -344,7 +375,8 @@ export const resetStaffPassword = onCall(async (request) => {
 })
 
 export const writeAuditLog = onCall(async (request) => {
-  if (!request.auth) throw new HttpsError('unauthenticated', 'Authentication is required.')
+  requireStaff(request)
+  if (!request.auth?.uid) throw new HttpsError('unauthenticated', 'Authentication is required.')
   const data = request.data as { action?: string; targetId?: string; targetType?: string }
   const targetTypes = new Set(['patient', 'doctor', 'assignment', 'system'])
   if (!data.action || data.action.length > 120 || !data.targetId || data.targetId.length > 200 || !data.targetType || !targetTypes.has(data.targetType)) {
