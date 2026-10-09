@@ -165,6 +165,7 @@ export async function fetchPatientClinicalEvidence(doctorId: string, patientId: 
   const loadPatientCollection = (name: 'checkins' | 'transcriptions' | 'goals') => loadQueryDocs(() => getDocs(query(
     collection(firestore, name),
     where('userId', '==', patientId),
+    orderBy('timestamp', 'desc'),
     limit(20),
   )))
 

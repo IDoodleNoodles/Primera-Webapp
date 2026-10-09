@@ -59,12 +59,14 @@ service cloud.firestore {
     }
     function canAdminManagePatientAccount() {
       return isAdmin()
-        && request.resource.data.role == resource.data.role
+        && request.resource.data.role == 'patient'
+        && (!resource.data.keys().hasAny(['role']) || resource.data.role == 'patient')
         && request.resource.data.diff(resource.data).changedKeys().hasOnly([
           'name',
           'assignedDoctorId',
           'active',
           'activationStatus',
+          'role',
           'updatedAt'
         ]);
     }
