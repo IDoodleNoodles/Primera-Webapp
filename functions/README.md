@@ -49,4 +49,4 @@ firebase login
 firebase deploy --only functions,firestore
 ```
 
-Callable functions include `createStaffAccount`, `setStaffAccountStatus`, `resetStaffPassword`, and `writeAuditLog`. Only an authenticated user with the `admin` custom claim can create, disable, or reset staff accounts.
+Callable functions include `createStaffAccount`, `setStaffAccountStatus`, `resetStaffPassword`, and `writeAuditLog`. Patient profiles created by the admin portal are marked `activationStatus: pending` until an administrator explicitly activates onboarding. Only an authenticated user with the `admin` custom claim can create, disable, or reset staff accounts.

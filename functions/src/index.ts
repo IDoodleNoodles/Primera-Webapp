@@ -14,6 +14,7 @@ type AdminPatient = {
   name: string
   assignedDoctorId: string | null
   active: boolean
+  activationStatus: 'pending' | 'active'
 }
 
 function readName(data: Record<string, unknown>, fallback: string) {
@@ -129,6 +130,7 @@ export const fetchAdminPatientDirectory = onCall(async (request) => {
       name: readName(entry.data(), 'Unnamed patient'),
       assignedDoctorId: typeof entry.data().assignedDoctorId === 'string' ? entry.data().assignedDoctorId : null,
       active: entry.data().active !== false,
+      activationStatus: entry.data().activationStatus === 'pending' ? 'pending' : 'active',
     }))
   return { items, nextPageToken: snapshot.size === pageSize(data.pageSize) ? snapshot.docs.at(-1)?.id ?? null : null }
 })

@@ -64,6 +64,7 @@ service cloud.firestore {
           'name',
           'assignedDoctorId',
           'active',
+          'activationStatus',
           'updatedAt'
         ]);
     }
@@ -75,6 +76,7 @@ service cloud.firestore {
           'name',
           'assignedDoctorId',
           'active',
+          'activationStatus',
           'role',
           'createdAt'
         ]));
