@@ -20,10 +20,17 @@ import {
 import type { AdminDashboardData, AdminPatient, PatientInput, StaffAccount } from '../services/portalService'
 
 const emptyPatient: PatientInput = {
-  name: '', assignedDoctorId: null, active: true,
+  name: '', assignedDoctorId: null, active: true, activationStatus: 'pending',
 }
 
 const emptyStaff = { name: '', email: '', password: '', role: 'doctor' as 'admin' | 'doctor' }
+type Operation = 'patient-save' | 'patient-delete' | 'patient-assign' | 'staff-save' | 'staff-status' | 'staff-delete'
+type Confirmation = {
+  title: string
+  description: string
+  confirmLabel: string
+  action: () => Promise<void>
+}
 
 function adminSection(pathname: string) {
   if (pathname.includes('/patients')) return 'patients'
@@ -43,14 +50,15 @@ export function AdminPage() {
   const [editingPatientId, setEditingPatientId] = useState<string | null>(null)
   const [staffForm, setStaffForm] = useState(emptyStaff)
   const [editingStaffId, setEditingStaffId] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
+  const [busyOperation, setBusyOperation] = useState<Operation | null>(null)
+  const [confirmation, setConfirmation] = useState<Confirmation | null>(null)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [patientSearch, setPatientSearch] = useState('')
   const [staffSearch, setStaffSearch] = useState('')
   const visibleStaff = section === 'doctors' ? staff.filter((account) => account.role === 'doctor') : staff
-  const writesDisabled = demoMode || busy
+  const isBusy = (operation: Operation) => demoMode || busyOperation === operation
 
   useEffect(() => {
     if (user?.role !== 'admin') {
@@ -95,71 +103,111 @@ export function AdminPage() {
 
   async function savePatient(event: React.FormEvent) {
     event.preventDefault()
-    setBusy(true); setError(''); setMessage('')
+    const name = patientForm.name.trim()
+    if (name.length < 2) {
+      setError('Enter a patient name with at least 2 characters.')
+      return
+    }
+    setBusyOperation('patient-save'); setError(''); setMessage('')
     try {
+      const input = { ...patientForm, name }
       const saved = editingPatientId
-        ? await updatePatient(editingPatientId, patientForm)
-        : await createPatient(patientForm)
-      await assignPatient(saved.id, patientForm.assignedDoctorId)
+        ? await updatePatient(editingPatientId, input)
+        : await createPatient(input)
+      await assignPatient(saved.id, input.assignedDoctorId)
       await refreshAdminDashboard()
-      setPatientForm(emptyPatient); setEditingPatientId(null); setMessage('Patient record saved.')
-    } catch (operationError) { showError(operationError) } finally { setBusy(false) }
+      setPatientForm(emptyPatient); setEditingPatientId(null); setMessage(editingPatientId ? 'Patient record updated.' : 'Patient record created and queued for activation.')
+    } catch (operationError) { showError(operationError) } finally { setBusyOperation(null) }
   }
 
   async function removePatient(patient: AdminPatient) {
-    if (!window.confirm(`Delete ${patient.name}'s patient record?`)) return
-    setBusy(true); setError('')
+    setConfirmation({
+      title: `Delete ${patient.name}'s patient record?`,
+      description: 'This permanently removes the patient profile, assignments, alerts, check-ins, and related activity.',
+      confirmLabel: 'Delete patient',
+      action: async () => {
+        setBusyOperation('patient-delete'); setError('')
+        try {
+          await deletePatient(patient.id)
+          await refreshAdminDashboard()
+          setMessage('Patient record deleted.')
+        } catch (operationError) { showError(operationError) } finally { setBusyOperation(null) }
+      },
+    })
+  }
+
+  async function activatePatient(patient: AdminPatient) {
+    setBusyOperation('patient-save'); setError('')
     try {
-      await deletePatient(patient.id)
+      await updatePatient(patient.id, { name: patient.name, assignedDoctorId: patient.assignedDoctorId, active: patient.active, activationStatus: 'active' })
       await refreshAdminDashboard()
-      setMessage('Patient record deleted.')
-    } catch (operationError) { showError(operationError) } finally { setBusy(false) }
+      setMessage('Patient onboarding activated.')
+    } catch (operationError) { showError(operationError) } finally { setBusyOperation(null) }
   }
 
   async function saveStaff(event: React.FormEvent) {
     event.preventDefault()
-    setBusy(true); setError(''); setMessage('')
+    const name = staffForm.name.trim()
+    if (name.length < 2) {
+      setError('Enter a staff name with at least 2 characters.')
+      return
+    }
+    if (!editingStaffId && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(staffForm.email.trim())) {
+      setError('Enter a valid staff email address.')
+      return
+    }
+    if (!editingStaffId && staffForm.password.length < 8) {
+      setError('Temporary passwords must be at least 8 characters.')
+      return
+    }
+    setBusyOperation('staff-save'); setError(''); setMessage('')
     try {
       const staffRole = section === 'doctors' ? 'doctor' : staffForm.role
       if (editingStaffId) {
         if (section === 'doctors') {
-          await updateDoctorName(editingStaffId, staffForm.name)
+          await updateDoctorName(editingStaffId, name)
         } else {
-          await updateStaffAccount({ uid: editingStaffId, name: staffForm.name, role: staffRole })
+          await updateStaffAccount({ uid: editingStaffId, name, role: staffRole })
         }
-        setStaff((current) => current.map((item) => item.uid === editingStaffId ? { ...item, name: staffForm.name, role: staffRole } : item))
+        setStaff((current) => current.map((item) => item.uid === editingStaffId ? { ...item, name, role: staffRole } : item))
       } else {
-        const result = await createStaffAccount({ ...staffForm, role: staffRole })
-        setStaff((current) => [...current, { uid: result.uid, name: staffForm.name, email: staffForm.email, role: staffRole, active: true }])
+        const result = await createStaffAccount({ ...staffForm, name, email: staffForm.email.trim(), role: staffRole })
+        setStaff((current) => [...current, { uid: result.uid, name, email: staffForm.email.trim(), role: staffRole, active: true }])
       }
       await refreshAdminDashboard()
       setStaffForm(emptyStaff); setEditingStaffId(null); setMessage('Staff account saved.')
-    } catch (operationError) { showError(operationError) } finally { setBusy(false) }
+    } catch (operationError) { showError(operationError) } finally { setBusyOperation(null) }
   }
 
   async function toggleStaff(account: StaffAccount) {
-    setBusy(true); setError('')
+    setBusyOperation('staff-status'); setError('')
     try {
       await setStaffAccountStatus(account.uid, !account.active)
       setStaff((current) => current.map((item) => item.uid === account.uid ? { ...item, active: !item.active } : item))
       await refreshAdminDashboard()
       setMessage(`Account ${account.active ? 'disabled' : 'enabled'}.`)
-    } catch (operationError) { showError(operationError) } finally { setBusy(false) }
+    } catch (operationError) { showError(operationError) } finally { setBusyOperation(null) }
   }
 
   async function removeStaff(account: StaffAccount) {
-    if (!window.confirm(`Delete ${account.name}'s staff account?`)) return
-    setBusy(true); setError('')
-    try {
-      await deleteStaffAccount(account.uid)
-      setStaff((current) => current.filter((item) => item.uid !== account.uid))
-      await refreshAdminDashboard()
-      setMessage('Staff account deleted.')
-    } catch (operationError) { showError(operationError) } finally { setBusy(false) }
+    setConfirmation({
+      title: `Delete ${account.name}'s staff account?`,
+      description: 'This permanently removes their portal access and staff profile. This action cannot be undone.',
+      confirmLabel: 'Delete account',
+      action: async () => {
+        setBusyOperation('staff-delete'); setError('')
+        try {
+          await deleteStaffAccount(account.uid)
+          setStaff((current) => current.filter((item) => item.uid !== account.uid))
+          await refreshAdminDashboard()
+          setMessage('Staff account deleted.')
+        } catch (operationError) { showError(operationError) } finally { setBusyOperation(null) }
+      },
+    })
   }
 
   async function unassignPatient(patient: AdminPatient) {
-    setBusy(true)
+    setBusyOperation('patient-assign')
     setError('')
     try {
       await assignPatient(patient.id, null)
@@ -168,13 +216,13 @@ export function AdminPage() {
     } catch (operationError) {
       showError(operationError)
     } finally {
-      setBusy(false)
+      setBusyOperation(null)
     }
   }
 
   function startPatientEdit(patient: AdminPatient) {
     setEditingPatientId(patient.id)
-    setPatientForm({ name: patient.name, assignedDoctorId: patient.assignedDoctorId, active: patient.active })
+    setPatientForm({ name: patient.name, assignedDoctorId: patient.assignedDoctorId, active: patient.active, activationStatus: patient.activationStatus })
   }
 
   if (loading || !dashboard) {
@@ -214,12 +262,12 @@ export function AdminPage() {
         <p className="muted">Patients may use Primera without a linked doctor. A patient-requested link becomes visible to the selected doctor for acceptance; admin assignments and reassignments take effect immediately.</p>
         <label>Search patients<input type="search" value={patientSearch} onChange={(event) => setPatientSearch(event.target.value)} placeholder="Search by name" /></label>
         <form className="admin-form" onSubmit={savePatient}>
-          <label>Name<input required value={patientForm.name} onChange={(event) => setPatientForm({ ...patientForm, name: event.target.value })} /></label>
+          <label>Name<input required minLength={2} value={patientForm.name} onChange={(event) => setPatientForm({ ...patientForm, name: event.target.value })} /></label>
           <label>Assigned doctor<select value={patientForm.assignedDoctorId ?? ''} onChange={(event) => setPatientForm({ ...patientForm, assignedDoctorId: event.target.value || null })}><option value="">Unassigned</option>{staff.filter((account) => account.role === 'doctor' && account.active).map((doctor) => <option key={doctor.uid} value={doctor.uid}>{doctor.name}</option>)}</select></label>
           <label>Account status<select value={patientForm.active ? 'active' : 'inactive'} onChange={(event) => setPatientForm({ ...patientForm, active: event.target.value === 'active' })}><option value="active">Active</option><option value="inactive">Inactive</option></select></label>
-          <div className="form-actions"><button className="button primary" disabled={writesDisabled}>{editingPatientId ? 'Update patient' : 'Create patient'}</button>{editingPatientId && <button type="button" className="button" onClick={() => { setEditingPatientId(null); setPatientForm(emptyPatient) }}>Cancel</button>}</div>
+          <div className="form-actions"><button className="button primary" disabled={isBusy('patient-save')}>{isBusy('patient-save') ? 'Saving...' : editingPatientId ? 'Update patient' : 'Create patient'}</button>{editingPatientId && <button type="button" className="button" onClick={() => { setEditingPatientId(null); setPatientForm(emptyPatient) }}>Cancel</button>}</div>
         </form>
-        <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Patient account</th><th>Account status</th><th>Assigned doctor</th><th>Actions</th></tr></thead><tbody>{dashboard.patients.map((patient) => <tr key={patient.id}><td>{patient.name}</td><td>{patient.active ? 'Active' : 'Inactive'}</td><td>{staff.find((account) => account.uid === patient.assignedDoctorId)?.name ?? 'Unassigned'}</td><td className="table-actions"><button className="button" disabled={demoMode} onClick={() => startPatientEdit(patient)}>Edit</button><button className="button danger" disabled={demoMode} onClick={() => removePatient(patient)}>Delete</button>{patient.assignedDoctorId && <button className="button" disabled={demoMode} onClick={() => unassignPatient(patient)}>Unassign</button>}</td></tr>)}</tbody></table></div>
+        <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Patient account</th><th>Account status</th><th>Onboarding</th><th>Assigned doctor</th><th>Actions</th></tr></thead><tbody>{dashboard.patients.map((patient) => <tr key={patient.id}><td>{patient.name}</td><td>{patient.active ? 'Active' : 'Inactive'}</td><td>{patient.activationStatus === 'pending' ? 'Pending activation' : 'Active'}</td><td>{staff.find((account) => account.uid === patient.assignedDoctorId)?.name ?? 'Unassigned'}</td><td className="table-actions"><button className="button" disabled={demoMode} onClick={() => startPatientEdit(patient)}>Edit</button>{patient.activationStatus === 'pending' && <button className="button" disabled={isBusy('patient-save')} onClick={() => activatePatient(patient)}>Activate</button>}<button className="button danger" disabled={isBusy('patient-delete')} onClick={() => removePatient(patient)}>Delete</button>{patient.assignedDoctorId && <button className="button" disabled={isBusy('patient-assign')} onClick={() => unassignPatient(patient)}>Unassign</button>}</td></tr>)}</tbody></table></div>
       </section>
       )}
 
@@ -228,14 +276,14 @@ export function AdminPage() {
       <section className="panel admin-management">
         <div className="panel-heading"><div><p className="eyebrow">{section === 'doctors' ? 'Doctor registry' : 'Staff access'}</p><h3>{editingStaffId ? (section === 'doctors' ? 'Edit doctor record' : 'Edit staff account') : (section === 'doctors' ? 'Add doctor record' : 'Create staff account')}</h3></div></div>
         <form className="admin-form" onSubmit={saveStaff}>
-          <label>Name<input required value={staffForm.name} onChange={(event) => setStaffForm({ ...staffForm, name: event.target.value })} /></label>
+          <label>Name<input required minLength={2} value={staffForm.name} onChange={(event) => setStaffForm({ ...staffForm, name: event.target.value })} /></label>
           {!editingStaffId && <label>Email<input required type="email" value={staffForm.email} onChange={(event) => setStaffForm({ ...staffForm, email: event.target.value })} /></label>}
-          {!editingStaffId && <label>Temporary password<input required type="password" minLength={6} value={staffForm.password} onChange={(event) => setStaffForm({ ...staffForm, password: event.target.value })} /></label>}
+          {!editingStaffId && <label>Temporary password<input required type="password" minLength={8} value={staffForm.password} onChange={(event) => setStaffForm({ ...staffForm, password: event.target.value })} /></label>}
           {section === 'overview' && <label>Role<select value={staffForm.role} onChange={(event) => setStaffForm({ ...staffForm, role: event.target.value as 'admin' | 'doctor' })}><option value="doctor">Doctor</option><option value="admin">Admin</option></select></label>}
-          <div className="form-actions"><button className="button primary" disabled={writesDisabled}>{editingStaffId ? (section === 'doctors' ? 'Update doctor' : 'Update account') : (section === 'doctors' ? 'Create doctor' : 'Create account')}</button>{editingStaffId && <button type="button" className="button" onClick={() => { setEditingStaffId(null); setStaffForm(emptyStaff) }}>Cancel</button>}</div>
+          <div className="form-actions"><button className="button primary" disabled={isBusy('staff-save')}>{isBusy('staff-save') ? 'Saving...' : editingStaffId ? (section === 'doctors' ? 'Update doctor' : 'Update account') : (section === 'doctors' ? 'Create doctor' : 'Create account')}</button>{editingStaffId && <button type="button" className="button" onClick={() => { setEditingStaffId(null); setStaffForm(emptyStaff) }}>Cancel</button>}</div>
         </form>
         <label>Search {section === 'doctors' ? 'doctors' : 'staff'}<input type="search" value={staffSearch} onChange={(event) => setStaffSearch(event.target.value)} placeholder="Search by name" /></label>
-        <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>{section === 'doctors' ? 'Doctor name' : 'Name'}</th><th>Email</th><th>{section === 'doctors' ? 'Specialty' : 'Role'}</th><th>Status</th><th>Actions</th></tr></thead><tbody>{visibleStaff.map((account) => <tr key={account.uid}><td>{account.name}</td><td>{account.email || 'No email on file'}</td><td>{section === 'doctors' ? (account.specialty || 'OBGYN') : account.role}</td><td>{account.active ? 'Active' : 'Disabled'}</td><td className="table-actions"><button className="button" disabled={demoMode} onClick={() => { setEditingStaffId(account.uid); setStaffForm({ name: account.name, email: account.email, password: '', role: account.role }) }}>Edit</button><button className="button" disabled={demoMode} onClick={() => toggleStaff(account)}>{account.active ? 'Disable' : 'Enable'}</button><button className="button danger" disabled={demoMode} onClick={() => removeStaff(account)}>Delete</button></td></tr>)}</tbody></table></div>
+        <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>{section === 'doctors' ? 'Doctor name' : 'Name'}</th><th>Email</th><th>{section === 'doctors' ? 'Specialty' : 'Role'}</th><th>Status</th><th>Actions</th></tr></thead><tbody>{visibleStaff.map((account) => <tr key={account.uid}><td>{account.name}</td><td>{account.email || 'No email on file'}</td><td>{section === 'doctors' ? (account.specialty || 'OBGYN') : account.role}</td><td>{account.active ? 'Active' : 'Disabled'}</td><td className="table-actions"><button className="button" disabled={demoMode} onClick={() => { setEditingStaffId(account.uid); setStaffForm({ name: account.name, email: account.email, password: '', role: account.role }) }}>Edit</button><button className="button" disabled={isBusy('staff-status')} onClick={() => toggleStaff(account)}>{account.active ? 'Disable' : 'Enable'}</button><button className="button danger" disabled={isBusy('staff-delete')} onClick={() => removeStaff(account)}>Delete</button></td></tr>)}</tbody></table></div>
       </section>
 
       <section className="metric-grid">
@@ -272,7 +320,7 @@ export function AdminPage() {
       <section className="panel">
         <div className="panel-heading"><div><p className="eyebrow">Assignments</p><h3>Doctor-to-patient coverage</h3></div></div>
         <p className="muted">Use this board for admin overrides and reassignment. Patient requests are accepted by the requested doctor from their assigned-patient workspace.</p>
-        <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Patient account</th><th>Doctor</th><th>Actions</th></tr></thead><tbody>{dashboard.patients.map((patient) => <tr key={patient.id}><td>{patient.name}</td><td>{staff.find((account) => account.uid === patient.assignedDoctorId)?.name ?? 'Unassigned'}</td><td className="table-actions">{patient.assignedDoctorId && <button className="button" disabled={demoMode} onClick={() => unassignPatient(patient)}>Unassign</button>}</td></tr>)}</tbody></table></div>
+        <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Patient account</th><th>Doctor</th><th>Actions</th></tr></thead><tbody>{dashboard.patients.map((patient) => <tr key={patient.id}><td>{patient.name}</td><td>{staff.find((account) => account.uid === patient.assignedDoctorId)?.name ?? 'Unassigned'}</td><td className="table-actions">{patient.assignedDoctorId && <button className="button" disabled={isBusy('patient-assign')} onClick={() => unassignPatient(patient)}>Unassign</button>}</td></tr>)}</tbody></table></div>
       </section>
       )}
 
@@ -291,6 +339,19 @@ export function AdminPage() {
           )) : <li><span className="muted">No audit events yet. Portal writes do not currently call the audit log function.</span></li>}
         </ul>
       </section>
+      )}
+      {confirmation && (
+        <div className="confirmation-backdrop" role="presentation">
+          <section className="confirmation-dialog" role="alertdialog" aria-modal="true" aria-labelledby="confirmation-title">
+            <p className="eyebrow">Confirm action</p>
+            <h3 id="confirmation-title">{confirmation.title}</h3>
+            <p className="muted">{confirmation.description}</p>
+            <div className="form-actions">
+              <button className="button" type="button" onClick={() => setConfirmation(null)} disabled={busyOperation !== null}>Cancel</button>
+              <button className="button danger" type="button" onClick={async () => { const action = confirmation.action; setConfirmation(null); await action() }} disabled={busyOperation !== null}>{confirmation.confirmLabel}</button>
+            </div>
+          </section>
+        </div>
       )}
     </div>
   )

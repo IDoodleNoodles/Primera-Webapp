@@ -17,11 +17,12 @@ export type AdminPatient = {
   name: string
   assignedDoctorId: string | null
   active: boolean
+  activationStatus: 'pending' | 'active'
 }
 
 export type { DoctorLinkRequest }
 
-export type PatientInput = Pick<AdminPatient, 'name' | 'assignedDoctorId' | 'active'>
+export type PatientInput = Pick<AdminPatient, 'name' | 'assignedDoctorId' | 'active' | 'activationStatus'>
 
 type AdminOverview = {
   totalCases: number
@@ -288,6 +289,7 @@ export async function createPatient(input: PatientInput) {
   const reference = await addDoc(collection(db, 'users'), {
     ...input,
     role: 'patient',
+    activationStatus: input.activationStatus,
     createdAt: serverTimestamp(),
   })
   await writeAdminAudit('Created patient account', reference.id, 'patient')
@@ -401,6 +403,7 @@ export function fetchAdminPatientDirectory(search = '') {
       name: readProfileName(entry.data(), 'Unnamed patient'),
       assignedDoctorId: typeof entry.data().assignedDoctorId === 'string' ? entry.data().assignedDoctorId : null,
       active: entry.data().active !== false,
+      activationStatus: entry.data().activationStatus === 'pending' ? 'pending' : 'active',
     }))
   })
 }

@@ -197,6 +197,7 @@ export function getMockAdminDashboard() {
     name,
     assignedDoctorId,
     active: true,
+    activationStatus: 'active' as const,
   }))
 
   return {
