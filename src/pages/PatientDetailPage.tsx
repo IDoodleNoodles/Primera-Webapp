@@ -181,8 +181,9 @@ export function PatientDetailPage() {
     })
   }
 
-  function recordValue(record: PatientClinicalEvidence['checkins'][number], label: string) {
-    return record.values.find((value) => value.label.toLowerCase() === label.toLowerCase())?.value ?? 'Not recorded'
+  function recordValue(record: PatientClinicalEvidence['checkins'][number], labels: string[]) {
+    const normalizedLabels = labels.map((label) => label.replace(/[^a-z0-9]/gi, '').toLowerCase())
+    return record.values.find((value) => normalizedLabels.includes(value.label.replace(/[^a-z0-9]/gi, '').toLowerCase()))?.value ?? 'Not recorded'
   }
 
   if (loading) {
@@ -238,7 +239,7 @@ export function PatientDetailPage() {
           <div><strong>Pregnancy</strong><span>{patient.pregnancyWeek ? `${patient.pregnancyWeek} weeks` : 'Not recorded'} · {patient.trimester ?? 'Trimester not recorded'}</span></div>
           <div><strong>Last check-in</strong><span>{patient.lastCheckIn ? new Date(patient.lastCheckIn).toLocaleString() : 'Not recorded'}</span></div>
           <div><strong>Symptoms reported</strong><span>{patient.symptoms}</span></div>
-          <div><strong>Latest health/activity</strong><span>{evidence?.smartwatchHealthRecords[0] ? `${recordValue(evidence.smartwatchHealthRecords[0], 'Heart rate')}; ${recordValue(evidence.smartwatchHealthRecords[0], 'Steps')} steps; ${recordValue(evidence.smartwatchHealthRecords[0], 'Sleep')} sleep` : 'Not available'}</span></div>
+          <div><strong>Latest health/activity</strong><span>{evidence?.smartwatchHealthRecords[0] ? `${recordValue(evidence.smartwatchHealthRecords[0], ['Heart rate', 'heartRate', 'heart_rate', 'pulse'])}; ${recordValue(evidence.smartwatchHealthRecords[0], ['Steps', 'stepCount', 'step_count'])} steps; ${recordValue(evidence.smartwatchHealthRecords[0], ['Sleep', 'sleepDuration', 'sleep_duration'])} sleep` : 'Not available'}</span></div>
         </div>
         <h2>Recent check-ins and history</h2>
         {evidence?.checkins.slice(0, 5).map((record) => <div className="print-record" key={record.id}><strong>{record.timestamp ? new Date(record.timestamp).toLocaleString() : 'Date not recorded'} · {record.title}</strong><span>{record.summary}</span></div>)}
@@ -327,7 +328,7 @@ export function PatientDetailPage() {
           {evidence.checkins.slice(0, 3).map((record) => <article className="checkin-card" key={record.id}>
             <div className="panel-heading"><strong>{record.title}</strong><small>{record.timestamp ? new Date(record.timestamp).toLocaleDateString() : 'Date not recorded'}</small></div>
             <p>{record.summary}</p>
-            <div className="checkin-meta"><span>Mood: {recordValue(record, 'Mood')}</span><span>Medication: {recordValue(record, 'Medication')}</span><span>Sleep: {recordValue(record, 'Sleep')}</span></div>
+            <div className="checkin-meta"><span>Mood: {recordValue(record, ['Mood'])}</span><span>Medication: {recordValue(record, ['Medication'])}</span><span>Sleep: {recordValue(record, ['Sleep', 'sleepDuration', 'sleep_duration'])}</span></div>
           </article>)}
           {!evidence.checkins.length && <p className="muted">No patient check-ins have been synced.</p>}
         </div>
@@ -351,9 +352,9 @@ export function PatientDetailPage() {
         </div>
         {evidence.screeningSignal.reasons.length > 0 && <p className="evidence-note"><strong>{evidence.screeningSignal.level} signal:</strong> {evidence.screeningSignal.reasons.join(' ')}</p>}
         <div className="trend-grid">
-          <div><span>Heart rate</span><strong>{evidence.smartwatchHealthRecords[0] ? recordValue(evidence.smartwatchHealthRecords[0], 'Heart rate') : 'Not available'}</strong><small>Latest wearable reading</small></div>
-          <div><span>Activity</span><strong>{evidence.smartwatchHealthRecords[0] ? recordValue(evidence.smartwatchHealthRecords[0], 'Steps') : 'Not available'}</strong><small>Latest daily steps</small></div>
-          <div><span>Sleep quality</span><strong>{evidence.smartwatchHealthRecords[0] ? recordValue(evidence.smartwatchHealthRecords[0], 'Sleep') : 'Not available'}</strong><small>Latest synced sleep</small></div>
+          <div><span>Heart rate</span><strong>{evidence.smartwatchHealthRecords[0] ? recordValue(evidence.smartwatchHealthRecords[0], ['Heart rate', 'heartRate', 'heart_rate', 'pulse']) : 'Not available'}</strong><small>Latest wearable reading</small></div>
+          <div><span>Activity</span><strong>{evidence.smartwatchHealthRecords[0] ? recordValue(evidence.smartwatchHealthRecords[0], ['Steps', 'stepCount', 'step_count']) : 'Not available'}</strong><small>Latest daily steps</small></div>
+          <div><span>Sleep quality</span><strong>{evidence.smartwatchHealthRecords[0] ? recordValue(evidence.smartwatchHealthRecords[0], ['Sleep', 'sleepDuration', 'sleep_duration']) : 'Not available'}</strong><small>Latest synced sleep</small></div>
         </div>
         <details className="history-disclosure">
           <summary>View health, symptom, and wellness history</summary>
