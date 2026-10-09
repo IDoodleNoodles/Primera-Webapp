@@ -47,6 +47,8 @@ export function AdminPage() {
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
+  const [patientSearch, setPatientSearch] = useState('')
+  const [staffSearch, setStaffSearch] = useState('')
   const visibleStaff = section === 'doctors' ? staff.filter((account) => account.role === 'doctor') : staff
   const writesDisabled = demoMode || busy
 
@@ -63,22 +65,22 @@ export function AdminPage() {
       return
     }
 
-    fetchAdminDashboardData(user.uid)
+    fetchAdminDashboardData(user.uid, patientSearch)
       .then(setDashboard)
       .catch(() => {
         setDashboard(getEmptyAdminDashboard())
         setError('Unable to load live operations data.')
       })
       .finally(() => setLoading(false))
-  }, [user, demoMode])
+  }, [user, demoMode, patientSearch])
 
   useEffect(() => {
     if (demoMode) {
       Promise.resolve(getMockStaffAccounts()).then(setStaff)
       return
     }
-    fetchStaffAccounts().then(setStaff).catch(() => setError('Unable to load staff accounts.'))
-  }, [demoMode])
+    fetchStaffAccounts(staffSearch).then(setStaff).catch(() => setError('Unable to load staff accounts.'))
+  }, [demoMode, staffSearch])
 
   function showError(value: unknown) {
     setMessage('')
@@ -87,7 +89,7 @@ export function AdminPage() {
 
   async function refreshAdminDashboard() {
     if (user?.role !== 'admin' || demoMode) return
-    const refreshed = await fetchAdminDashboardData(user.uid)
+    const refreshed = await fetchAdminDashboardData(user.uid, patientSearch)
     setDashboard(refreshed)
   }
 
@@ -210,6 +212,7 @@ export function AdminPage() {
       <section className="panel admin-management">
         <div className="panel-heading"><div><p className="eyebrow">Patient registry</p><h3>{editingPatientId ? 'Edit patient record' : 'Add patient record'}</h3></div></div>
         <p className="muted">Patients may use Primera without a linked doctor. A patient-requested link becomes visible to the selected doctor for acceptance; admin assignments and reassignments take effect immediately.</p>
+        <label>Search patients<input type="search" value={patientSearch} onChange={(event) => setPatientSearch(event.target.value)} placeholder="Search by name" /></label>
         <form className="admin-form" onSubmit={savePatient}>
           <label>Name<input required value={patientForm.name} onChange={(event) => setPatientForm({ ...patientForm, name: event.target.value })} /></label>
           <label>Assigned doctor<select value={patientForm.assignedDoctorId ?? ''} onChange={(event) => setPatientForm({ ...patientForm, assignedDoctorId: event.target.value || null })}><option value="">Unassigned</option>{staff.filter((account) => account.role === 'doctor' && account.active).map((doctor) => <option key={doctor.uid} value={doctor.uid}>{doctor.name}</option>)}</select></label>
@@ -231,6 +234,7 @@ export function AdminPage() {
           {section === 'overview' && <label>Role<select value={staffForm.role} onChange={(event) => setStaffForm({ ...staffForm, role: event.target.value as 'admin' | 'doctor' })}><option value="doctor">Doctor</option><option value="admin">Admin</option></select></label>}
           <div className="form-actions"><button className="button primary" disabled={writesDisabled}>{editingStaffId ? (section === 'doctors' ? 'Update doctor' : 'Update account') : (section === 'doctors' ? 'Create doctor' : 'Create account')}</button>{editingStaffId && <button type="button" className="button" onClick={() => { setEditingStaffId(null); setStaffForm(emptyStaff) }}>Cancel</button>}</div>
         </form>
+        <label>Search {section === 'doctors' ? 'doctors' : 'staff'}<input type="search" value={staffSearch} onChange={(event) => setStaffSearch(event.target.value)} placeholder="Search by name" /></label>
         <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>{section === 'doctors' ? 'Doctor name' : 'Name'}</th><th>Email</th><th>{section === 'doctors' ? 'Specialty' : 'Role'}</th><th>Status</th><th>Actions</th></tr></thead><tbody>{visibleStaff.map((account) => <tr key={account.uid}><td>{account.name}</td><td>{account.email || 'No email on file'}</td><td>{section === 'doctors' ? (account.specialty || 'OBGYN') : account.role}</td><td>{account.active ? 'Active' : 'Disabled'}</td><td className="table-actions"><button className="button" disabled={demoMode} onClick={() => { setEditingStaffId(account.uid); setStaffForm({ name: account.name, email: account.email, password: '', role: account.role }) }}>Edit</button><button className="button" disabled={demoMode} onClick={() => toggleStaff(account)}>{account.active ? 'Disable' : 'Enable'}</button><button className="button danger" disabled={demoMode} onClick={() => removeStaff(account)}>Delete</button></td></tr>)}</tbody></table></div>
       </section>
 

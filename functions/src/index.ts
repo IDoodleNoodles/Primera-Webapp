@@ -1,7 +1,7 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
 import { getApps, initializeApp } from 'firebase-admin/app'
 import { getAuth } from 'firebase-admin/auth'
-import { getFirestore, FieldValue } from 'firebase-admin/firestore'
+import { getFirestore, FieldValue, FieldPath } from 'firebase-admin/firestore'
 
 if (!getApps().length) initializeApp()
 
@@ -31,6 +31,26 @@ function requireAdmin(request: { auth?: { token?: Record<string, unknown> } }) {
   if (request.auth?.token?.role !== 'admin') {
     throw new HttpsError('permission-denied', 'Only administrators can manage portal accounts.')
   }
+}
+
+async function writeAdminAudit(request: { auth?: { uid?: string; token?: Record<string, unknown> } }, action: string, targetId: string, targetType: 'patient' | 'doctor' | 'assignment' | 'system') {
+  if (!request.auth?.uid) throw new HttpsError('unauthenticated', 'Authentication is required.')
+  await db.collection('auditLogs').add({
+    actorId: request.auth.uid,
+    actorRole: request.auth.token?.role ?? null,
+    action,
+    targetId,
+    targetType,
+    timestamp: FieldValue.serverTimestamp(),
+  })
+}
+
+function pageSize(value: unknown) {
+  return typeof value === 'number' && Number.isInteger(value) ? Math.min(Math.max(value, 1), 100) : 50
+}
+
+function pageCursor(value: unknown) {
+  return typeof value === 'string' && value.length <= 200 ? value : undefined
 }
 
 export const createStaffAccount = onCall(async (request) => {
@@ -76,6 +96,7 @@ export const createStaffAccount = onCall(async (request) => {
       })
     }
 
+    await writeAdminAudit(request, 'Created staff account', user.uid, data.role === 'doctor' ? 'doctor' : 'system')
     return { uid: user.uid }
   } catch (error) {
     if (createdUid) await auth.deleteUser(createdUid).catch(() => undefined)
@@ -89,26 +110,47 @@ export const createStaffAccount = onCall(async (request) => {
 export const fetchAdminPatientDirectory = onCall(async (request) => {
   requireAdmin(request)
 
-  const snapshot = await db.collection('users').get()
-  return snapshot.docs
-    .filter((entry) => {
-      return isPatientProfile(entry.data())
-    })
-    .map((entry): AdminPatient => ({
+  const data = request.data as { search?: string; pageSize?: number; pageToken?: string }
+  const search = typeof data.search === 'string' ? data.search.trim() : ''
+  let directoryQuery = db.collection('users')
+    .where('role', '==', 'patient')
+    .orderBy(search ? 'name' : FieldPath.documentId())
+    .limit(pageSize(data.pageSize))
+  if (search) directoryQuery = directoryQuery
+    .where('name', '>=', search)
+    .where('name', '<=', `${search}\uf8ff`)
+  if (pageCursor(data.pageToken)) {
+    const cursor = await db.doc(`users/${data.pageToken}`).get()
+    if (cursor.exists) directoryQuery = directoryQuery.startAfter(cursor)
+  }
+  const snapshot = await directoryQuery.get()
+  const items = snapshot.docs.map((entry): AdminPatient => ({
       id: entry.id,
       name: readName(entry.data(), 'Unnamed patient'),
       assignedDoctorId: typeof entry.data().assignedDoctorId === 'string' ? entry.data().assignedDoctorId : null,
       active: entry.data().active !== false,
     }))
+  return { items, nextPageToken: snapshot.size === pageSize(data.pageSize) ? snapshot.docs.at(-1)?.id ?? null : null }
 })
 
 export const fetchAdminStaffDirectory = onCall(async (request) => {
   requireAdmin(request)
 
-  const snapshot = await db.collection('users').get()
-  return snapshot.docs
-    .filter((entry) => entry.data().role === 'doctor' || entry.data().role === 'admin')
-    .map((entry) => ({
+  const data = request.data as { search?: string; pageSize?: number; pageToken?: string }
+  const search = typeof data.search === 'string' ? data.search.trim() : ''
+  let directoryQuery = db.collection('users')
+    .where('role', 'in', ['doctor', 'admin'])
+    .orderBy(search ? 'name' : FieldPath.documentId())
+    .limit(pageSize(data.pageSize))
+  if (search) directoryQuery = directoryQuery
+    .where('name', '>=', search)
+    .where('name', '<=', `${search}\uf8ff`)
+  if (pageCursor(data.pageToken)) {
+    const cursor = await db.doc(`users/${data.pageToken}`).get()
+    if (cursor.exists) directoryQuery = directoryQuery.startAfter(cursor)
+  }
+  const snapshot = await directoryQuery.get()
+  const items = snapshot.docs.map((entry) => ({
       uid: entry.id,
       name: readName(entry.data(), 'Unnamed staff member'),
       email: typeof entry.data().email === 'string' ? entry.data().email : '',
@@ -116,6 +158,7 @@ export const fetchAdminStaffDirectory = onCall(async (request) => {
       active: entry.data().active !== false,
       specialty: typeof entry.data().specialty === 'string' ? entry.data().specialty : undefined,
     }))
+  return { items, nextPageToken: snapshot.size === pageSize(data.pageSize) ? snapshot.docs.at(-1)?.id ?? null : null }
 })
 
 export const setStaffAccountStatus = onCall(async (request) => {
@@ -131,6 +174,7 @@ export const setStaffAccountStatus = onCall(async (request) => {
   await db.doc(`doctors/${data.uid}`).set({ active: data.active }, { merge: true })
   await db.doc(`admins/${data.uid}`).set({ active: data.active }, { merge: true })
 
+  await writeAdminAudit(request, `${data.active ? 'Enabled' : 'Disabled'} staff account`, data.uid, 'doctor')
   return { uid: data.uid, active: data.active }
 })
 
@@ -151,6 +195,7 @@ export const updateStaffAccount = onCall(async (request) => {
   if (previousRole === 'admin' && data.role === 'doctor') await db.doc(`admins/${data.uid}`).delete()
   await db.doc(`${data.role === 'doctor' ? 'doctors' : 'admins'}/${data.uid}`).set({ name: data.name }, { merge: true })
 
+  await writeAdminAudit(request, 'Updated staff account', data.uid, data.role === 'doctor' ? 'doctor' : 'system')
   return { uid: user.uid }
 })
 
@@ -168,6 +213,7 @@ export const deleteStaffAccount = onCall(async (request) => {
     db.doc(`admins/${data.uid}`).delete(),
   ])
 
+  await writeAdminAudit(request, 'Deleted staff account', data.uid, 'doctor')
   return { uid: data.uid }
 })
 
@@ -195,6 +241,7 @@ export const deletePatientAccount = onCall(async (request) => {
   smartwatch.docs.forEach((entry) => batch.delete(entry.ref))
   await batch.commit()
 
+  await writeAdminAudit(request, 'Deleted patient account', data.patientId, 'patient')
   return { id: data.patientId }
 })
 
