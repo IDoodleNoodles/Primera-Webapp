@@ -16,6 +16,11 @@ type AdminPatient = {
   assignedDoctorId: string | null
   active: boolean
   activationStatus: 'pending' | 'active'
+  riskLevel?: string
+  riskScore?: number
+  status?: string
+  lastCheckIn?: unknown
+  alertCount?: number
 }
 
 function readName(data: Record<string, unknown>, fallback: string) {
@@ -150,6 +155,11 @@ export const fetchAdminPatientDirectory = onCall(async (request) => {
       assignedDoctorId: typeof entry.data().assignedDoctorId === 'string' ? entry.data().assignedDoctorId : null,
       active: entry.data().active !== false,
       activationStatus: entry.data().activationStatus === 'pending' ? 'pending' : 'active',
+      riskLevel: typeof entry.data().riskLevel === 'string' ? entry.data().riskLevel : 'low',
+      riskScore: typeof entry.data().riskScore === 'number' ? entry.data().riskScore : 0,
+      status: typeof entry.data().status === 'string' ? entry.data().status : 'stable',
+      lastCheckIn: entry.data().lastCheckIn,
+      alertCount: typeof entry.data().alertCount === 'number' ? entry.data().alertCount : 0,
     }))
   return { items, nextPageToken: snapshot.size === pageSize(data.pageSize) ? snapshot.docs.at(-1)?.id ?? null : null }
 })
@@ -337,6 +347,7 @@ export const respondToDoctorLinkRequest = onCall(async (request) => {
       batch.delete(db.doc(`doctors/${previousDoctorId}/assignedPatients/${patientId}`))
     }
   })
+
   batch.update(db.doc(`users/${patientId}`), { assignedDoctorId: request.auth.uid, updatedAt: FieldValue.serverTimestamp() })
   batch.set(db.doc(`assignments/${request.auth.uid}_${patientId}`), {
     patientId,
@@ -344,6 +355,7 @@ export const respondToDoctorLinkRequest = onCall(async (request) => {
     source: 'patient-request',
     assignedAt: FieldValue.serverTimestamp(),
   })
+
   batch.set(db.doc(`doctors/${request.auth.uid}/assignedPatients/${patientId}`), {
     patientId,
     source: 'patient-request',
@@ -351,6 +363,44 @@ export const respondToDoctorLinkRequest = onCall(async (request) => {
   }, { merge: true })
   batch.update(requestRef, { status: 'accepted', respondedAt: FieldValue.serverTimestamp() })
   await batch.commit()
+  return { success: true }
+})
+
+export const respondToAdminLinkRequest = onCall(async (request) => {
+  requireAdmin(request)
+  const data = request.data as { requestId?: string; decision?: string }
+  if (!data.requestId || (data.decision !== 'accept' && data.decision !== 'decline')) {
+    throw new HttpsError('invalid-argument', 'requestId and an accept or decline decision are required.')
+  }
+  const requestRef = db.doc(`doctorLinkRequests/${data.requestId}`)
+  const snapshot = await requestRef.get()
+  const linkRequest = snapshot.data()
+  if (!snapshot.exists || linkRequest?.status !== 'pending') {
+    throw new HttpsError('failed-precondition', 'This link request is no longer available.')
+  }
+  const patientId = linkRequest.patientId
+  const doctorId = linkRequest.doctorId
+  if (typeof patientId !== 'string' || typeof doctorId !== 'string') {
+    throw new HttpsError('invalid-argument', 'The link request is missing a patient or doctor.')
+  }
+  if (data.decision === 'decline') {
+    await requestRef.update({ status: 'declined', respondedAt: FieldValue.serverTimestamp(), respondedBy: request.auth?.uid })
+    await writeAdminAudit(request, 'Declined doctor link request', patientId, 'assignment')
+    return { success: true }
+  }
+  const batch = db.batch()
+  const previousAssignments = await db.collection('assignments').where('patientId', '==', patientId).get()
+  previousAssignments.docs.forEach((entry) => {
+    const previousDoctorId = entry.data().doctorId
+    batch.delete(entry.ref)
+    if (typeof previousDoctorId === 'string') batch.delete(db.doc(`doctors/${previousDoctorId}/assignedPatients/${patientId}`))
+  })
+  batch.update(db.doc(`users/${patientId}`), { assignedDoctorId: doctorId, updatedAt: FieldValue.serverTimestamp() })
+  batch.set(db.doc(`assignments/${doctorId}_${patientId}`), { patientId, doctorId, source: 'admin-request', assignedAt: FieldValue.serverTimestamp() })
+  batch.set(db.doc(`doctors/${doctorId}/assignedPatients/${patientId}`), { patientId, source: 'admin-request', assignedAt: FieldValue.serverTimestamp() }, { merge: true })
+  batch.update(requestRef, { status: 'accepted', respondedAt: FieldValue.serverTimestamp(), respondedBy: request.auth?.uid })
+  await batch.commit()
+  await writeAdminAudit(request, 'Accepted doctor link request', patientId, 'assignment')
   return { success: true }
 })
 

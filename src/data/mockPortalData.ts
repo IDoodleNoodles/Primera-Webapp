@@ -121,6 +121,14 @@ export const mockPatients: Patient[] = [
   },
 ]
 
+export const mockAdminLinkRequests = [
+  { id: 'request-1', patientId: 'patient-3', patientName: 'Zoe Williams', doctorId: 'doctor-2', doctorName: 'Dr. Nguyen', status: 'pending' as const, createdAt: '2026-08-21T10:00:00Z' },
+]
+
+export function getMockLinkRequests() {
+  return [...mockAdminLinkRequests]
+}
+
 export const mockAdminMetrics: DashboardMetric[] = [
   { label: 'Active OBGYNs', value: '18', change: '+2 this month' },
   { label: 'Unassigned cases', value: '5', change: '2 require review' },
@@ -192,12 +200,17 @@ export const mockDoctorLinkRequests: DoctorLinkRequest[] = [
 ]
 
 export function getMockAdminDashboard() {
-  const adminPatients = mockPatients.map(({ id, name, assignedDoctorId }) => ({
+  const adminPatients = mockPatients.map(({ id, name, assignedDoctorId, riskLevel, riskScore, status, lastCheckIn, alertCount }) => ({
     id,
     name,
     assignedDoctorId,
     active: true,
     activationStatus: 'active' as const,
+    riskLevel,
+    riskScore,
+    status,
+    lastCheckIn,
+    alertCount,
   }))
 
   return {

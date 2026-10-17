@@ -18,6 +18,8 @@ export function AppShell({ children }: { children: ReactNode }) {
             <NavLink to="/admin/patients" className={baseLinkClass}>Patient Registry</NavLink>
             <NavLink to="/admin/doctors" className={baseLinkClass}>Doctor Registry</NavLink>
             <NavLink to="/admin/assignments" className={baseLinkClass}>Assignments</NavLink>
+            <NavLink to="/admin/requests" className={baseLinkClass}>Link Requests</NavLink>
+            <NavLink to="/admin/risk" className={baseLinkClass}>Risk Queue</NavLink>
             <NavLink to="/admin/logs" className={baseLinkClass}>Audit Trail</NavLink>
           </nav>
         </div>
