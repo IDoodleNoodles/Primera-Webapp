@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { firebaseConfigured } from '../firebase'
 import { useAuth } from '../context/AuthContext'
-import { getMockAdminDashboard, getMockStaffAccounts } from '../data/mockPortalData'
+import { getMockAdminDashboard, getMockLinkRequests, getMockStaffAccounts } from '../data/mockPortalData'
 import { adminSection } from './adminSection'
 import {
   assignPatient,
@@ -12,20 +12,22 @@ import {
   deleteStaffAccount,
   fetchAdminDashboardData,
   fetchStaffAccounts,
+  fetchAdminLinkRequests,
+  respondToAdminLinkRequest,
   resetStaffPassword,
   setStaffAccountStatus,
   updatePatient,
   updateDoctorName,
   updateStaffAccount,
 } from '../services/portalService'
-import type { AdminDashboardData, AdminPatient, PatientInput, StaffAccount } from '../services/portalService'
+import type { AdminDashboardData, AdminLinkRequest, AdminPatient, PatientInput, StaffAccount } from '../services/portalService'
 
 const emptyPatient: PatientInput = {
   name: '', assignedDoctorId: null, active: true, activationStatus: 'pending',
 }
 
 const emptyStaff = { name: '', email: '', password: '', role: 'doctor' as 'admin' | 'doctor' }
-type Operation = 'patient-save' | 'patient-delete' | 'patient-assign' | 'staff-save' | 'staff-status' | 'staff-delete' | 'staff-reset'
+type Operation = 'patient-save' | 'patient-delete' | 'patient-assign' | 'staff-save' | 'staff-status' | 'staff-delete' | 'staff-reset' | 'link-request'
 type Confirmation = {
   title: string
   description: string
@@ -39,6 +41,7 @@ export function AdminPage() {
   const demoMode = !firebaseConfigured
   const [dashboard, setDashboard] = useState<AdminDashboardData | null>(null)
   const [staff, setStaff] = useState<StaffAccount[]>([])
+  const [linkRequests, setLinkRequests] = useState<AdminLinkRequest[]>([])
   const [patientForm, setPatientForm] = useState<PatientInput>(emptyPatient)
   const [editingPatientId, setEditingPatientId] = useState<string | null>(null)
   const [staffForm, setStaffForm] = useState(emptyStaff)
@@ -53,6 +56,7 @@ export function AdminPage() {
   const [staffError, setStaffError] = useState('')
   const [dashboardRetry, setDashboardRetry] = useState(0)
   const [staffRetry, setStaffRetry] = useState(0)
+  const [requestRetry, setRequestRetry] = useState(0)
   const [patientSearch, setPatientSearch] = useState('')
   const [staffSearch, setStaffSearch] = useState('')
   const visibleStaff = section === 'doctors' ? staff.filter((account) => account.role === 'doctor') : staff
@@ -93,6 +97,14 @@ export function AdminPage() {
       .catch(() => setStaffError('Unable to load staff accounts.'))
       .finally(() => setStaffLoading(false))
   }, [demoMode, staffSearch, staffRetry])
+
+  useEffect(() => {
+    if (demoMode) {
+      setLinkRequests(getMockLinkRequests())
+      return
+    }
+    fetchAdminLinkRequests().then(setLinkRequests).catch(() => setError('Unable to load doctor-link requests.'))
+  }, [demoMode, requestRetry])
 
   function showError(value: unknown) {
     setMessage('')
@@ -237,6 +249,61 @@ export function AdminPage() {
     }
   }
 
+  function requestAssignment(patient: AdminPatient, doctorId: string | null) {
+      if (!doctorId) {
+        void unassignPatient(patient)
+        return
+      }
+      const doctor = staff.find((account) => account.uid === doctorId)
+      const action = async () => {
+        setBusyOperation('patient-assign')
+        setError('')
+        try {
+          await assignPatient(patient.id, doctorId)
+          await refreshAdminDashboard()
+          setMessage(`Patient assigned to ${doctor?.name ?? 'the selected doctor'}.`)
+        } catch (operationError) {
+          showError(operationError)
+        } finally {
+          setBusyOperation(null)
+        }
+      }
+      if (patient.assignedDoctorId && patient.assignedDoctorId !== doctorId) {
+        setConfirmation({
+          title: `Reassign ${patient.name}?`,
+          description: `This will replace the current doctor with ${doctor?.name ?? 'the selected doctor'}${doctor && !doctor.active ? ' (disabled account)' : ''}.`,
+          confirmLabel: 'Reassign patient',
+          action,
+        })
+        return
+      }
+      if (doctor && !doctor.active) {
+        setConfirmation({
+          title: `Assign to disabled doctor?`,
+          description: `${doctor.name} is disabled. Assigning this patient will create an operational exception.`,
+          confirmLabel: 'Assign anyway',
+          action,
+        })
+        return
+      }
+      void action()
+    }
+
+  async function decideLinkRequest(request: AdminLinkRequest, decision: 'accept' | 'decline') {
+      setBusyOperation('link-request')
+      setError('')
+      try {
+        if (!demoMode) await respondToAdminLinkRequest(request.id, decision)
+        setLinkRequests((current) => current.filter((item) => item.id !== request.id))
+        if (decision === 'accept') await refreshAdminDashboard()
+        setMessage(`Doctor-link request ${decision === 'accept' ? 'accepted' : 'declined'}.`)
+      } catch (operationError) {
+        showError(operationError)
+      } finally {
+        setBusyOperation(null)
+    }
+  }
+
   function startPatientEdit(patient: AdminPatient) {
     setEditingPatientId(patient.id)
     setPatientForm({ name: patient.name, assignedDoctorId: patient.assignedDoctorId, active: patient.active, activationStatus: patient.activationStatus })
@@ -276,6 +343,8 @@ export function AdminPage() {
             {section === 'patients' && 'Patient registry'}
             {section === 'doctors' && 'Doctor registry'}
             {section === 'assignments' && 'Assignment board'}
+            {section === 'requests' && 'Doctor-link requests'}
+            {section === 'risk' && 'Risk and escalation queue'}
             {section === 'logs' && 'Audit trail'}
             {section === 'overview' && 'Maternal care operations overview'}
           </h2>
@@ -354,8 +423,23 @@ export function AdminPage() {
       <section className="panel">
         <div className="panel-heading"><div><p className="eyebrow">Assignments</p><h3>Doctor-to-patient coverage</h3></div></div>
         <p className="muted">Use this board for admin overrides and reassignment. Patient requests are accepted by the requested doctor from their assigned-patient workspace.</p>
-        <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Patient account</th><th>Doctor</th><th>Actions</th></tr></thead><tbody>{dashboard.patients.map((patient) => <tr key={patient.id}><td>{patient.name}</td><td>{staff.find((account) => account.uid === patient.assignedDoctorId)?.name ?? 'Unassigned'}</td><td className="table-actions">{patient.assignedDoctorId && <button className="button" disabled={isBusy('patient-assign')} onClick={() => unassignPatient(patient)}>Unassign</button>}</td></tr>)}</tbody></table></div>
+        <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Patient account</th><th>Risk</th><th>Doctor</th><th>Actions</th></tr></thead><tbody>{dashboard.patients.map((patient) => <tr key={patient.id}><td>{patient.name}</td><td>{patient.riskLevel} ({patient.riskScore})</td><td><select value={patient.assignedDoctorId ?? ''} onChange={(event) => requestAssignment(patient, event.target.value || null)} disabled={isBusy('patient-assign')}><option value="">Unassigned</option>{staff.filter((account) => account.role === 'doctor').map((doctor) => <option key={doctor.uid} value={doctor.uid}>{doctor.name}{doctor.active ? '' : ' (disabled)'}</option>)}</select></td><td className="table-actions">{patient.assignedDoctorId && <button className="button" disabled={isBusy('patient-assign')} onClick={() => unassignPatient(patient)}>Unassign</button>}</td></tr>)}</tbody></table></div>
       </section>
+      )}
+
+      {section === 'requests' && (
+        <section className="panel">
+          <div className="panel-heading"><div><p className="eyebrow">Link requests</p><h3>Pending doctor requests</h3></div><button className="button" onClick={() => setRequestRetry((value) => value + 1)}>Refresh</button></div>
+          <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Patient</th><th>Requested doctor</th><th>Requested</th><th>Actions</th></tr></thead><tbody>{linkRequests.map((request) => <tr key={request.id}><td>{request.patientName}</td><td>{request.doctorName}</td><td>{request.createdAt ? new Date(request.createdAt).toLocaleDateString() : 'N/A'}</td><td className="table-actions"><button className="button primary" disabled={isBusy('link-request')} onClick={() => decideLinkRequest(request, 'accept')}>Accept and assign</button><button className="button danger" disabled={isBusy('link-request')} onClick={() => decideLinkRequest(request, 'decline')}>Decline</button></td></tr>)}</tbody></table></div>
+          {!linkRequests.length && <p className="muted">No pending doctor-link requests.</p>}
+        </section>
+      )}
+
+      {section === 'risk' && (
+        <section className="panel">
+          <div className="panel-heading"><div><p className="eyebrow">Risk queue</p><h3>Patients needing operational attention</h3></div></div>
+          <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Patient</th><th>Risk</th><th>Status</th><th>Alerts</th><th>Last check-in</th><th>Coverage</th></tr></thead><tbody>{dashboard.patients.filter((patient) => patient.riskLevel === 'critical' || patient.riskLevel === 'high' || patient.status === 'escalated' || patient.alertCount > 0 || !patient.assignedDoctorId).sort((left, right) => right.riskScore - left.riskScore).map((patient) => <tr key={patient.id}><td>{patient.name}</td><td>{patient.riskLevel} ({patient.riskScore})</td><td>{patient.status}</td><td>{patient.alertCount}</td><td>{patient.lastCheckIn ? new Date(patient.lastCheckIn).toLocaleDateString() : 'No check-in'}</td><td>{staff.find((account) => account.uid === patient.assignedDoctorId)?.name ?? 'Unassigned'}</td></tr>)}</tbody></table></div>
+        </section>
       )}
 
       {(section === 'overview' || section === 'logs') && (

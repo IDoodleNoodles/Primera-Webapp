@@ -18,9 +18,18 @@ export type AdminPatient = {
   assignedDoctorId: string | null
   active: boolean
   activationStatus: 'pending' | 'active'
+  riskLevel: Patient['riskLevel']
+  riskScore: number
+  status: Patient['status']
+  lastCheckIn: string
+  alertCount: number
 }
 
 export type { DoctorLinkRequest }
+
+export type AdminLinkRequest = DoctorLinkRequest & {
+  doctorName: string
+}
 
 export type PatientInput = Pick<AdminPatient, 'name' | 'assignedDoctorId' | 'active' | 'activationStatus'>
 
@@ -408,8 +417,41 @@ export function fetchAdminPatientDirectory(search = '') {
       assignedDoctorId: typeof entry.data().assignedDoctorId === 'string' ? entry.data().assignedDoctorId : null,
       active: entry.data().active !== false,
       activationStatus: entry.data().activationStatus === 'pending' ? 'pending' : 'active',
+      riskLevel: entry.data().riskLevel === 'critical' || entry.data().riskLevel === 'high' || entry.data().riskLevel === 'moderate' ? entry.data().riskLevel : 'low',
+      riskScore: firstNumber(entry.data(), ['riskScore']) ?? 0,
+      status: entry.data().status === 'escalated' || entry.data().status === 'monitoring' ? entry.data().status : 'stable',
+      lastCheckIn: toIsoTimestamp(entry.data().lastCheckIn),
+      alertCount: firstNumber(entry.data(), ['alertCount']) ?? 0,
     }))
   })
+}
+
+export async function fetchAdminLinkRequests(): Promise<AdminLinkRequest[]> {
+  if (!db) return []
+  const firestore = db
+  const snapshot = await getDocs(query(
+    collection(firestore, 'doctorLinkRequests'),
+    where('status', '==', 'pending'),
+    limit(100),
+  ))
+  const requests = await Promise.all(snapshot.docs.map(async (entry) => {
+    const data = entry.data()
+    const patientId = typeof data.patientId === 'string' ? data.patientId : ''
+    const doctorId = typeof data.doctorId === 'string' ? data.doctorId : ''
+    const [patient, doctor] = await Promise.all([
+      patientId ? getDoc(doc(firestore, 'users', patientId)) : null,
+      doctorId ? getDoc(doc(firestore, 'users', doctorId)) : null,
+    ])
+    return {
+      ...toDoctorLinkRequest(entry.id, data, patient?.exists() ? readProfileName(patient.data(), 'Patient') : 'Patient'),
+      doctorName: doctor?.exists() ? readProfileName(doctor.data(), 'Doctor') : 'Doctor',
+    }
+  }))
+  return requests.sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+}
+
+export function respondToAdminLinkRequest(requestId: string, decision: 'accept' | 'decline') {
+  return callAdminFunction<{ success: boolean }>('respondToAdminLinkRequest', { requestId, decision })
 }
 
 type FirestorePatient = Partial<Patient> & {
