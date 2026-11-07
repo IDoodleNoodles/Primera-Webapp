@@ -7,6 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
+    "test:unit": "vitest run src/components/roleGuard.test.ts functions/src/adminOverview.test.ts",
+    "test:rules": "vitest run tests/firestore.rules.test.ts",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -26,6 +28,7 @@
     "eslint": "^10.8.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.3",
+    "@firebase/rules-unit-testing": "^5.0.0",
     "globals": "^17.7.0",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.65.0",
