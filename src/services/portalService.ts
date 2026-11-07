@@ -1,5 +1,5 @@
-import type { AuditLog, ClinicalEvidenceRecord, DashboardMetric, DoctorAlert, DoctorLinkRequest, Patient, PatientClinicalEvidence } from '../types'
-import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, limit, orderBy, query, serverTimestamp, updateDoc, where, writeBatch } from 'firebase/firestore'
+import type { ClinicalEvidenceRecord, DashboardMetric, DoctorAlert, DoctorLinkRequest, Patient, PatientClinicalEvidence } from '../types'
+import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, limit, orderBy, query, serverTimestamp, updateDoc, where } from 'firebase/firestore'
 import { db, firebaseConfigured } from '../firebase'
 import { getFunctions, httpsCallable } from 'firebase/functions'
 
@@ -12,38 +12,16 @@ export type StaffAccount = {
   specialty?: string
 }
 
-export type AdminPatient = {
-  id: string
-  name: string
-  assignedDoctorId: string | null
-  active: boolean
-  activationStatus: 'pending' | 'active'
-  riskLevel: Patient['riskLevel']
-  riskScore: number
-  status: Patient['status']
-  lastCheckIn: string
-  alertCount: number
-}
-
 export type { DoctorLinkRequest }
 
-export type AdminLinkRequest = DoctorLinkRequest & {
-  doctorName: string
-}
-
-export type PatientInput = Pick<AdminPatient, 'name' | 'assignedDoctorId' | 'active' | 'activationStatus'>
-
 type AdminOverview = {
-  totalCases: number
-  totalAssigned: number
-  unassigned: number
+  totalStaff: number
+  activeStaff: number
 }
 
 export type AdminDashboardData = {
   metrics: DashboardMetric[]
   overview: AdminOverview
-  activityLog: AuditLog[]
-  patients: AdminPatient[]
 }
 
 type DoctorOverview = {
@@ -62,22 +40,6 @@ export type DoctorDashboardData = {
 }
 
 export type { DoctorAlert }
-
-function buildOverview(items: Patient[]): AdminOverview {
-  if (!items.length) {
-    return {
-      totalCases: 0,
-      totalAssigned: 0,
-      unassigned: 0,
-    }
-  }
-
-  return {
-    totalCases: items.length,
-    totalAssigned: items.filter((patient) => patient.assignedDoctorId).length,
-    unassigned: items.filter((patient) => !patient.assignedDoctorId).length,
-  }
-}
 
 function toIsoTimestamp(value: unknown): string {
   if (typeof value === 'string') return value
@@ -194,24 +156,13 @@ export async function fetchPatientClinicalEvidence(doctorId: string, patientId: 
   return { ...evidence, screeningSignal: buildScreeningSignal(evidence.smartwatchHealthRecords) }
 }
 
-function normalizeTargetType(value: unknown): AuditLog['targetType'] {
-  if (value === 'patient' || value === 'doctor' || value === 'assignment' || value === 'system') {
-    return value
-  }
-
-  return 'system'
-}
-
 export function getEmptyAdminDashboard(): AdminDashboardData {
   return {
     metrics: [
       { label: 'Active OBGYNs', value: '0', change: 'No doctor accounts loaded' },
-      { label: 'Unassigned cases', value: '0', change: 'Patients without assigned doctor' },
-      { label: 'Active patient accounts', value: '0', change: 'No patient accounts loaded' },
+      { label: 'Active staff', value: '0', change: 'No staff accounts loaded' },
     ],
-    overview: buildOverview([]),
-    activityLog: [],
-    patients: [],
+    overview: { totalStaff: 0, activeStaff: 0 },
   }
 }
 
@@ -275,78 +226,20 @@ export function respondToDoctorLinkRequest(requestId: string, decision: 'accept'
 
 export async function fetchStaffAccounts(search = ''): Promise<StaffAccount[]> {
   if (!firebaseConfigured || !db) return []
-  try {
-    return await fetchDirectoryPages<StaffAccount>('fetchAdminStaffDirectory', search)
-  } catch {
-    const snapshot = await getDocs(query(collection(db, 'users'), where('role', 'in', ['doctor', 'admin']), limit(100)))
-    return snapshot.docs
-      .filter((entry) => entry.data().role === 'doctor' || entry.data().role === 'admin')
-      .map((entry): StaffAccount => ({
-        uid: entry.id,
-        name: readProfileName(entry.data(), 'Unnamed staff member'),
-        email: typeof entry.data().email === 'string' ? entry.data().email : '',
-        role: entry.data().role as 'admin' | 'doctor',
-        active: entry.data().active !== false,
-        specialty: typeof entry.data().specialty === 'string' ? entry.data().specialty : undefined,
-      }))
-  }
-}
-
-export async function createPatient(input: PatientInput) {
-  if (!db) throw new Error('Firebase is not configured.')
-
-  const reference = await addDoc(collection(db, 'users'), {
-    ...input,
-    role: 'patient',
-    activationStatus: input.activationStatus,
-    createdAt: serverTimestamp(),
-  })
-  await writeAdminAudit('Created patient account', reference.id, 'patient')
-  return { id: reference.id, ...input }
-}
-
-export async function updatePatient(patientId: string, input: PatientInput) {
-  if (!db) throw new Error('Firebase is not configured.')
-  await updateDoc(doc(db, 'users', patientId), {
-    ...input,
-    // Normalize legacy records that were created without a role.
-    role: 'patient',
-  })
-  await writeAdminAudit('Updated patient account', patientId, 'patient')
-  return { id: patientId, ...input }
-}
-
-export async function deletePatient(patientId: string) {
-  return callAdminFunction<{ id: string }>('deletePatientAccount', { patientId })
-}
-
-export async function assignPatient(patientId: string, doctorId: string | null) {
-  if (!db) throw new Error('Firebase is not configured.')
-  const firestore = db
-  const assignments = collection(firestore, 'assignments')
-  const existing = await getDocs(query(assignments, where('patientId', '==', patientId)))
-  const previousDoctorIds = existing.docs
-    .map((entry) => entry.data().doctorId)
-    .filter((value): value is string => typeof value === 'string')
-  const batch = writeBatch(firestore)
-  existing.docs.forEach((entry) => batch.delete(entry.ref))
-  batch.update(doc(firestore, 'users', patientId), { assignedDoctorId: doctorId })
-  previousDoctorIds.forEach((previousDoctorId) => batch.delete(
-    doc(firestore, 'doctors', previousDoctorId, 'assignedPatients', patientId),
-  ))
-  if (doctorId) {
-    batch.set(doc(firestore, 'assignments', `${doctorId}_${patientId}`), {
-      patientId,
-      doctorId,
-      assignedAt: serverTimestamp(),
-    })
-    batch.set(doc(firestore, 'doctors', doctorId, 'assignedPatients', patientId), {
-      patientId,
-      assignedAt: serverTimestamp(),
-    }, { merge: true })
-  }
-  await batch.commit()
-  await writeAdminAudit(doctorId ? 'Assigned patient' : 'Unassigned patient', patientId, 'assignment')
+  const snapshot = await getDocs(query(collection(db, 'users'), where('role', 'in', ['admin', 'doctor']), limit(100)))
+  const normalizedSearch = search.trim().toLocaleLowerCase()
+  return snapshot.docs
+    .map((entry): StaffAccount => ({
+      uid: entry.id,
+      name: readProfileName(entry.data(), 'Unnamed staff member'),
+      email: typeof entry.data().email === 'string' ? entry.data().email : '',
+      role: entry.data().role as 'admin' | 'doctor',
+      active: entry.data().active !== false,
+      specialty: typeof entry.data().specialty === 'string' ? entry.data().specialty : undefined,
+    }))
+    .filter((entry) => !normalizedSearch || entry.name.toLocaleLowerCase().includes(normalizedSearch))
+    .sort((left, right) => left.name.localeCompare(right.name))
+    .slice(0, 100)
 }
 
 async function callAdminFunction<T>(name: string, data: object) {
@@ -356,41 +249,12 @@ async function callAdminFunction<T>(name: string, data: object) {
   return (await callable(data)).data
 }
 
-async function writeAdminAudit(action: string, targetId: string, targetType: 'patient' | 'doctor' | 'assignment' | 'system') {
-  await callAdminFunction<{ success: boolean }>('writeAuditLog', { action, targetId, targetType })
-}
-
-async function fetchDirectoryPages<T>(name: 'fetchAdminStaffDirectory' | 'fetchAdminPatientDirectory', search = '') {
-  const items: T[] = []
-  let pageToken: string | null = null
-  do {
-    const page: { items: T[]; nextPageToken: string | null } = await callAdminFunction(name, {
-      pageSize: 100,
-      pageToken,
-      search,
-    })
-    items.push(...page.items)
-    pageToken = page.nextPageToken
-  } while (pageToken)
-  return items
-}
-
 export function createStaffAccount(data: { email: string; password: string; name: string; role: 'admin' | 'doctor' }) {
   return callAdminFunction<{ uid: string }>('createStaffAccount', data)
 }
 
 export function updateStaffAccount(data: { uid: string; name: string; role: 'admin' | 'doctor' }) {
   return callAdminFunction<{ uid: string }>('updateStaffAccount', data)
-}
-
-export async function updateDoctorName(uid: string, name: string) {
-  if (!db) throw new Error('Firebase is not configured.')
-  await Promise.all([
-    updateDoc(doc(db, 'users', uid), { name, role: 'doctor' }),
-    updateDoc(doc(db, 'doctors', uid), { name }),
-  ])
-  await writeAdminAudit('Updated doctor account', uid, 'doctor')
-  return { uid }
 }
 
 export function deleteStaffAccount(uid: string) {
@@ -403,55 +267,6 @@ export function setStaffAccountStatus(uid: string, active: boolean) {
 
 export function resetStaffPassword(uid: string) {
   return callAdminFunction<{ success: boolean; maskedEmail: string; resetLink: string }>('resetStaffPassword', { uid })
-}
-
-export function fetchAdminPatientDirectory(search = '') {
-  if (!db) return Promise.resolve([] as AdminPatient[])
-  const firestore = db
-
-  return fetchDirectoryPages<AdminPatient>('fetchAdminPatientDirectory', search).catch(async () => {
-    const snapshot = await getDocs(query(collection(firestore, 'users'), where('role', '==', 'patient'), limit(100)))
-    return snapshot.docs.map((entry): AdminPatient => ({
-      id: entry.id,
-      name: readProfileName(entry.data(), 'Unnamed patient'),
-      assignedDoctorId: typeof entry.data().assignedDoctorId === 'string' ? entry.data().assignedDoctorId : null,
-      active: entry.data().active !== false,
-      activationStatus: entry.data().activationStatus === 'pending' ? 'pending' : 'active',
-      riskLevel: entry.data().riskLevel === 'critical' || entry.data().riskLevel === 'high' || entry.data().riskLevel === 'moderate' ? entry.data().riskLevel : 'low',
-      riskScore: firstNumber(entry.data(), ['riskScore']) ?? 0,
-      status: entry.data().status === 'escalated' || entry.data().status === 'monitoring' ? entry.data().status : 'stable',
-      lastCheckIn: toIsoTimestamp(entry.data().lastCheckIn),
-      alertCount: firstNumber(entry.data(), ['alertCount']) ?? 0,
-    }))
-  })
-}
-
-export async function fetchAdminLinkRequests(): Promise<AdminLinkRequest[]> {
-  if (!db) return []
-  const firestore = db
-  const snapshot = await getDocs(query(
-    collection(firestore, 'doctorLinkRequests'),
-    where('status', '==', 'pending'),
-    limit(100),
-  ))
-  const requests = await Promise.all(snapshot.docs.map(async (entry) => {
-    const data = entry.data()
-    const patientId = typeof data.patientId === 'string' ? data.patientId : ''
-    const doctorId = typeof data.doctorId === 'string' ? data.doctorId : ''
-    const [patient, doctor] = await Promise.all([
-      patientId ? getDoc(doc(firestore, 'users', patientId)) : null,
-      doctorId ? getDoc(doc(firestore, 'users', doctorId)) : null,
-    ])
-    return {
-      ...toDoctorLinkRequest(entry.id, data, patient?.exists() ? readProfileName(patient.data(), 'Patient') : 'Patient'),
-      doctorName: doctor?.exists() ? readProfileName(doctor.data(), 'Doctor') : 'Doctor',
-    }
-  }))
-  return requests.sort((left, right) => right.createdAt.localeCompare(left.createdAt))
-}
-
-export function respondToAdminLinkRequest(requestId: string, decision: 'accept' | 'decline') {
-  return callAdminFunction<{ success: boolean }>('respondToAdminLinkRequest', { requestId, decision })
 }
 
 type FirestorePatient = Partial<Patient> & {
@@ -571,69 +386,18 @@ export async function fetchAdminDashboardData(userId: string, patientSearch = ''
   if (!db) return getEmptyAdminDashboard()
 
   void userId
-  const firestore = db
-  const visiblePatients = await fetchAdminPatientDirectory(patientSearch)
-
-  const [doctorSnapshot, auditSnapshot] = await Promise.all([
-    getDocs(collection(firestore, 'doctors')),
-    getDocs(query(collection(firestore, 'auditLogs'), orderBy('timestamp', 'desc'), limit(8))),
-  ])
-
-  const activeDoctors = doctorSnapshot.docs.filter((doctor) => doctor.data().active !== false).length
-  const unassignedCases = visiblePatients.filter((patient) => !patient.assignedDoctorId).length
-
-  const overview = {
-    totalCases: visiblePatients.length,
-    totalAssigned: visiblePatients.length - unassignedCases,
-    unassigned: unassignedCases,
-  }
-
-  const metrics: DashboardMetric[] = [
-    {
-      label: 'Active OBGYNs',
-      value: String(activeDoctors),
-      change: `${doctorSnapshot.size} total doctor accounts`,
-    },
-    {
-      label: 'Active patient accounts',
-      value: String(visiblePatients.filter((patient) => patient.active).length),
-      change: `${visiblePatients.length} total patient accounts`,
-    },
-    {
-      label: 'Unassigned cases',
-      value: String(unassignedCases),
-      change: 'Patients without assigned doctor',
-    },
-    {
-      label: 'Audit events',
-      value: String(auditSnapshot.size),
-      change: 'Recent portal activity',
-    },
-  ]
-
-  const logs: AuditLog[] = auditSnapshot.docs.map((entry) => {
-    const data = entry.data()
-    const actorId = typeof data.actorId === 'string' ? data.actorId : ''
-    const actorName = typeof data.actorName === 'string' && data.actorName.trim()
-      ? data.actorName
-      : 'Portal user'
-
-    return {
-      id: entry.id,
-      actorId,
-      actorName,
-      action: typeof data.action === 'string' ? data.action : 'Updated record',
-      targetId: typeof data.targetId === 'string' ? data.targetId : '',
-      targetType: normalizeTargetType(data.targetType),
-      timestamp: toIsoTimestamp(data.timestamp),
-    }
-  })
+  void patientSearch
+  const staff = await fetchStaffAccounts()
+  const doctors = staff.filter((account) => account.role === 'doctor')
+  const activeDoctors = doctors.filter((doctor) => doctor.active).length
+  const activeStaff = staff.filter((account) => account.active).length
 
   return {
-    metrics,
-    overview,
-    activityLog: logs,
-    patients: visiblePatients,
+    metrics: [
+      { label: 'Active OBGYNs', value: String(activeDoctors), change: `${doctors.length} total doctor accounts` },
+      { label: 'Active staff', value: String(activeStaff), change: `${staff.length} total staff accounts` },
+    ],
+    overview: { totalStaff: staff.length, activeStaff },
   }
 }
 

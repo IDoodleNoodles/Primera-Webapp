@@ -22,12 +22,7 @@ function AppRoutes() {
             <AppShell>
               <Routes>
                 <Route index element={<AdminPage />} />
-                <Route path="patients" element={<AdminPage />} />
                 <Route path="doctors" element={<AdminPage />} />
-                <Route path="assignments" element={<AdminPage />} />
-                <Route path="requests" element={<AdminPage />} />
-                <Route path="risk" element={<AdminPage />} />
-                <Route path="logs" element={<AdminPage />} />
                 <Route path="*" element={<Navigate to="/admin" replace />} />
               </Routes>
             </AppShell>
