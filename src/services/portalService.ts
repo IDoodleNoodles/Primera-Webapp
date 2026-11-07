@@ -437,7 +437,7 @@ export async function fetchAdminDashboardData(userId: string, patientSearch = ''
 
   void userId
   void patientSearch
-  const [staff, systemOverview] = await Promise.all([fetchStaffAccounts(), fetchAdminOverview()])
+  const staff = await fetchStaffAccounts()
   const doctors = staff.filter((account) => account.role === 'doctor')
   const activeDoctors = doctors.filter((doctor) => doctor.active).length
   const activeStaff = staff.filter((account) => account.active).length
@@ -448,7 +448,7 @@ export async function fetchAdminDashboardData(userId: string, patientSearch = ''
       { label: 'Active staff', value: String(activeStaff), change: `${staff.length} total staff accounts` },
     ],
     overview: { totalStaff: staff.length, activeStaff },
-    systemOverview,
+    systemOverview: getEmptyAdminDashboard().systemOverview,
   }
 }
 

@@ -30,16 +30,6 @@ function formatDate(value: string | null) {
   return Number.isNaN(date.valueOf()) ? 'Not available' : date.toLocaleString()
 }
 
-function signupAge(value: string | null) {
-  if (!value) return 'Signup date unavailable'
-  const date = new Date(value)
-  if (Number.isNaN(date.valueOf())) return 'Signup date unavailable'
-  const days = Math.max(0, Math.floor((Date.now() - date.valueOf()) / 86400000))
-  if (days === 0) return 'Signed up today'
-  if (days === 1) return 'Signed up 1 day ago'
-  return `Signed up ${days} days ago`
-}
-
 function downloadAuditLog(logs: AdminAuditLog[]) {
   const rows = [
     ['Who', 'What', 'When'],
@@ -65,6 +55,7 @@ function Overview({ dashboard, auditLogs, auditError, onRetryAudit }: {
 
   return (
     <>
+      <p className="muted">Patient-derived overview metrics require a deployed backend function and are unavailable on the Firebase Spark plan. Staff account summaries remain available.</p>
       <section className="metric-grid" aria-label="Staff summary">
         <article className="metric-card"><span>Active staff</span><strong>{dashboard.overview.activeStaff}</strong><small>Currently enabled accounts</small></article>
         <article className="metric-card"><span>Total staff</span><strong>{dashboard.overview.totalStaff}</strong><small>Admin and doctor accounts</small></article>
@@ -83,8 +74,8 @@ function Overview({ dashboard, auditLogs, auditError, onRetryAudit }: {
           </section>
 
           <section className="panel">
-            <div className="panel-heading"><div><p className="eyebrow">Patients without a doctor</p><h3>{dashboard.systemOverview.patientsWithoutDoctor.length} waiting</h3></div></div>
-            {dashboard.systemOverview.patientsWithoutDoctor.length === 0 ? <div className="state-block"><p>No patients are waiting for a doctor.</p></div> : <ul className="list">{dashboard.systemOverview.patientsWithoutDoctor.map((patient, index) => <li key={`${patient.displayName}-${patient.signedUpAt}-${index}`}><span><strong>{patient.displayName}</strong><small>{signupAge(patient.signedUpAt)}</small></span></li>)}</ul>}
+            <div className="panel-heading"><div><p className="eyebrow">Patients without a doctor</p><h3>Unavailable</h3></div></div>
+            <div className="state-block"><p>This patient-derived metric is unavailable on the Firebase Spark plan.</p></div>
           </section>
 
           <section className="panel">

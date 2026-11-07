@@ -51,15 +51,17 @@ export async function buildAdminOverview(db: Firestore): Promise<AdminOverview> 
   const staffSnapshot = await db.collection('users')
     .where('role', '==', 'doctor')
     .get()
+  const patientsSnapshot = await db.collection('users').where('role', '==', 'patient').get()
 
   const doctorWorkload = await Promise.all(staffSnapshot.docs.map(async (doctor) => {
-    const [assignedUsers, assignments, assignedPatients] = await Promise.all([
-      db.collection('users').where('role', '==', 'patient').where('assignedDoctorId', '==', doctor.id).get(),
+    const [assignments, assignedPatients] = await Promise.all([
       db.collection('assignments').where('doctorId', '==', doctor.id).get(),
       db.collection(`doctors/${doctor.id}/assignedPatients`).get(),
     ])
     const patientIds = new Set<string>()
-    assignedUsers.docs.forEach((entry) => patientIds.add(entry.id))
+    patientsSnapshot.docs.forEach((entry) => {
+      if (entry.data().assignedDoctorId === doctor.id) patientIds.add(entry.id)
+    })
     assignments.docs.forEach((entry) => {
       const patientId = entry.data().patientId
       if (typeof patientId === 'string') patientIds.add(patientId)
@@ -75,7 +77,6 @@ export async function buildAdminOverview(db: Firestore): Promise<AdminOverview> 
     }
   }))
 
-  const patientsSnapshot = await db.collection('users').where('role', '==', 'patient').get()
   const patientsWithoutDoctor = patientsSnapshot.docs
     .filter((patient) => {
       const assignedDoctorId = patient.data().assignedDoctorId
