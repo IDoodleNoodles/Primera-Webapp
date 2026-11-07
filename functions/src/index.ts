@@ -2,7 +2,8 @@ import { onCall, HttpsError } from 'firebase-functions/v2/https'
 import { getApps, initializeApp } from 'firebase-admin/app'
 import { getAuth } from 'firebase-admin/auth'
 import { getFirestore, FieldValue } from 'firebase-admin/firestore'
-import type { DocumentReference } from 'firebase-admin/firestore'
+import { buildAdminOverview } from './adminOverview.js'
+import { hasAdminRole } from './adminGuard.js'
 
 if (!getApps().length) initializeApp()
 
@@ -18,7 +19,7 @@ function readName(data: Record<string, unknown>, fallback: string) {
 }
 
 function requireAdmin(request: { auth?: { token?: Record<string, unknown> } }) {
-  if (request.auth?.token?.role !== 'admin') {
+  if (!hasAdminRole(request)) {
     throw new HttpsError('permission-denied', 'Only administrators can manage portal accounts.')
   }
 }
@@ -44,17 +45,6 @@ async function writeAdminAudit(request: { auth?: { uid?: string; token?: Record<
 
 function pageSize(value: unknown) {
   return typeof value === 'number' && Number.isInteger(value) ? Math.min(Math.max(value, 1), 100) : 50
-}
-
-async function commitOperations(operations: Array<{ ref: DocumentReference; action: 'delete' | 'unassign' }>) {
-  for (let index = 0; index < operations.length; index += 450) {
-    const batch = db.batch()
-    operations.slice(index, index + 450).forEach(({ ref, action }) => {
-      if (action === 'delete') batch.delete(ref)
-      else batch.update(ref, { assignedDoctorId: null, updatedAt: FieldValue.serverTimestamp() })
-    })
-    await batch.commit()
-  }
 }
 
 export const createStaffAccount = onCall(async (request) => {
@@ -142,6 +132,11 @@ export const fetchAdminStaffDirectory = onCall(async (request) => {
   return { items, nextPageToken: null }
 })
 
+export const fetchAdminOverview = onCall(async (request) => {
+  requireAdmin(request)
+  return buildAdminOverview(db)
+})
+
 export const setStaffAccountStatus = onCall(async (request) => {
   requireAdmin(request)
 
@@ -183,20 +178,18 @@ export const updateStaffAccount = onCall(async (request) => {
   await auth.setCustomUserClaims(data.uid, { role: data.role })
   const previousProfile = await db.doc(`users/${data.uid}`).get()
   const previousRole = previousProfile.data()?.role
-  await db.doc(`users/${data.uid}`).set({ name: data.name, role: data.role }, { merge: true })
   if (previousRole === 'doctor' && data.role === 'admin') {
     const [assignments, assignedPatients, assignedUsers] = await Promise.all([
-      db.collection('assignments').where('doctorId', '==', data.uid).get(),
-      db.collection(`doctors/${data.uid}/assignedPatients`).get(),
-      db.collection('users').where('assignedDoctorId', '==', data.uid).get(),
+      db.collection('assignments').where('doctorId', '==', data.uid).limit(1).get(),
+      db.collection(`doctors/${data.uid}/assignedPatients`).limit(1).get(),
+      db.collection('users').where('assignedDoctorId', '==', data.uid).limit(1).get(),
     ])
-    await commitOperations([
-      ...assignments.docs.map((entry) => ({ ref: entry.ref, action: 'delete' as const })),
-      ...assignedPatients.docs.map((entry) => ({ ref: entry.ref, action: 'delete' as const })),
-      ...assignedUsers.docs.map((entry) => ({ ref: entry.ref, action: 'unassign' as const })),
-    ])
-    await db.doc(`doctors/${data.uid}`).delete()
+    if (!assignments.empty || !assignedPatients.empty || !assignedUsers.empty) {
+      throw new HttpsError('failed-precondition', 'This doctor still has patient assignments. The patient-led flow must resolve them first.')
+    }
   }
+  await db.doc(`users/${data.uid}`).set({ name: data.name, role: data.role }, { merge: true })
+  if (previousRole === 'doctor' && data.role === 'admin') await db.doc(`doctors/${data.uid}`).delete()
   if (previousRole === 'admin' && data.role === 'doctor') await db.doc(`admins/${data.uid}`).delete()
   await db.doc(`${data.role === 'doctor' ? 'doctors' : 'admins'}/${data.uid}`).set({ name: data.name }, { merge: true })
 
@@ -217,18 +210,8 @@ export const deleteStaffAccount = onCall(async (request) => {
     db.collection(`doctors/${data.uid}/assignedPatients`).get(),
     db.collection('users').where('assignedDoctorId', '==', data.uid).get(),
   ])
-  const cleanupOperations = [
-    ...assignments.docs.map((entry) => ({ ref: entry.ref, action: 'delete' as const })),
-    ...assignedPatients.docs.map((entry) => ({ ref: entry.ref, action: 'delete' as const })),
-    ...assignedUsers.docs.map((entry) => ({ ref: entry.ref, action: 'unassign' as const })),
-  ]
-  for (let index = 0; index < cleanupOperations.length; index += 450) {
-    const batch = db.batch()
-    cleanupOperations.slice(index, index + 450).forEach(({ ref, action }) => {
-      if (action === 'delete') batch.delete(ref)
-      else batch.update(ref, { assignedDoctorId: null, updatedAt: FieldValue.serverTimestamp() })
-    })
-    await batch.commit()
+  if (staffProfile.data()?.role === 'doctor' && (assignments.size > 0 || assignedPatients.size > 0 || assignedUsers.size > 0)) {
+    throw new HttpsError('failed-precondition', 'This doctor still has patient assignments. The patient-led flow must resolve them first.')
   }
 
   await auth.deleteUser(data.uid)

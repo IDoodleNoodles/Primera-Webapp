@@ -14,14 +14,32 @@ export type StaffAccount = {
 
 export type { DoctorLinkRequest }
 
-type AdminOverview = {
+export type AdminAuditLog = {
+  id: string
+  actorName: string
+  action: string
+  timestamp: string
+}
+
+export type AdminOverview = {
+  doctorWorkload: Array<{ doctorId: string; name: string; patientCount: number }>
+  patientsWithoutDoctor: Array<{ displayName: string; signedUpAt: string | null }>
+  pipeline: {
+    smartwatchSyncsToday: number | null
+    voiceCheckInsToday: number | null
+    functionErrorCount: number | null
+  }
+}
+
+type AdminStaffOverview = {
   totalStaff: number
   activeStaff: number
 }
 
 export type AdminDashboardData = {
   metrics: DashboardMetric[]
-  overview: AdminOverview
+  overview: AdminStaffOverview
+  systemOverview: AdminOverview
 }
 
 type DoctorOverview = {
@@ -163,6 +181,11 @@ export function getEmptyAdminDashboard(): AdminDashboardData {
       { label: 'Active staff', value: '0', change: 'No staff accounts loaded' },
     ],
     overview: { totalStaff: 0, activeStaff: 0 },
+    systemOverview: {
+      doctorWorkload: [],
+      patientsWithoutDoctor: [],
+      pipeline: { smartwatchSyncsToday: null, voiceCheckInsToday: null, functionErrorCount: null },
+    },
   }
 }
 
@@ -267,6 +290,33 @@ export function setStaffAccountStatus(uid: string, active: boolean) {
 
 export function resetStaffPassword(uid: string) {
   return callAdminFunction<{ success: boolean; maskedEmail: string; resetLink: string }>('resetStaffPassword', { uid })
+}
+
+export function fetchAdminOverview() {
+  return callAdminFunction<AdminOverview>('fetchAdminOverview', {})
+}
+
+export async function fetchAdminAuditLogs(): Promise<AdminAuditLog[]> {
+  if (!firebaseConfigured || !db) return []
+  const firestore = db
+  const snapshot = await getDocs(query(collection(firestore, 'auditLogs'), orderBy('timestamp', 'desc'), limit(50)))
+  const actorIds = Array.from(new Set(snapshot.docs
+    .map((entry) => entry.data().actorId)
+    .filter((actorId): actorId is string => typeof actorId === 'string')))
+  const actorProfiles = await Promise.all(actorIds.map(async (actorId) => {
+    const profile = await getDoc(doc(firestore, 'users', actorId))
+    return [actorId, profile.exists() ? readProfileName(profile.data(), 'Unknown staff member') : 'Unknown staff member'] as const
+  }))
+  const names = new Map(actorProfiles)
+  return snapshot.docs.map((entry) => {
+    const data = entry.data()
+    return {
+      id: entry.id,
+      actorName: typeof data.actorId === 'string' ? names.get(data.actorId) ?? 'Unknown staff member' : 'Unknown staff member',
+      action: typeof data.action === 'string' ? data.action : 'Recorded system action',
+      timestamp: toIsoTimestamp(data.timestamp),
+    }
+  })
 }
 
 type FirestorePatient = Partial<Patient> & {
@@ -387,7 +437,7 @@ export async function fetchAdminDashboardData(userId: string, patientSearch = ''
 
   void userId
   void patientSearch
-  const staff = await fetchStaffAccounts()
+  const [staff, systemOverview] = await Promise.all([fetchStaffAccounts(), fetchAdminOverview()])
   const doctors = staff.filter((account) => account.role === 'doctor')
   const activeDoctors = doctors.filter((doctor) => doctor.active).length
   const activeStaff = staff.filter((account) => account.active).length
@@ -398,6 +448,7 @@ export async function fetchAdminDashboardData(userId: string, patientSearch = ''
       { label: 'Active staff', value: String(activeStaff), change: `${staff.length} total staff accounts` },
     ],
     overview: { totalStaff: staff.length, activeStaff },
+    systemOverview,
   }
 }
 

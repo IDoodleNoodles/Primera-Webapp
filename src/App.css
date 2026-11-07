@@ -172,6 +172,126 @@
   grid-template-columns: 1.3fr 0.7fr;
 }
 
+.overview-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+  gap: 20px;
+}
+
+.overview-stack {
+  display: grid;
+  gap: 20px;
+}
+
+.panel-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.panel-heading h3 {
+  margin: 0;
+}
+
+.state-block {
+  display: grid;
+  gap: 10px;
+  place-items: start;
+  padding: 18px 0;
+}
+
+.state-block p {
+  margin: 0;
+}
+
+.state-error {
+  color: #8d3341;
+}
+
+.log-list li {
+  align-items: flex-start;
+}
+
+.log-list time {
+  color: var(--muted);
+  font-size: 0.85rem;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.log-list strong,
+.list strong {
+  display: block;
+  color: var(--ink);
+}
+
+.list small {
+  display: block;
+  color: var(--muted);
+  margin-top: 3px;
+}
+
+.workload-list,
+.pipeline-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 14px;
+}
+
+.workload-label,
+.pipeline-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.workload-label strong,
+.pipeline-list strong {
+  color: var(--ink);
+}
+
+.workload-track {
+  height: 10px;
+  margin-top: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--bg-soft);
+}
+
+.workload-track span {
+  display: block;
+  height: 100%;
+  min-width: 4px;
+  border-radius: inherit;
+  background: var(--primary);
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 4px 9px;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.status-badge::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.status-good { color: #146246; background: #d9f3e7; }
+.status-warning { color: #8a5a16; background: #f8ead0; }
+.status-unknown { color: #5e5960; background: #ece9e6; }
+
 .chart-wrap {
   height: 240px;
 }
@@ -825,6 +945,7 @@
 
   .landing-shell,
   .two-column,
+  .overview-grid,
   .detail-grid,
   .summary-grid,
   .evidence-columns,

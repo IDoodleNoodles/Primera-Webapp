@@ -2,6 +2,7 @@ import { Navigate } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { useAuth } from '../context/AuthContext'
 import type { Role } from '../types'
+import { isAllowedRole } from './roleGuard'
 
 export function ProtectedRoute({
   allowedRoles,
@@ -16,7 +17,7 @@ export function ProtectedRoute({
     return <Navigate to="/" replace />
   }
 
-  if (!allowedRoles.includes(user.role)) {
+  if (!isAllowedRole(user.role, allowedRoles)) {
     const fallback = user.role === 'admin' ? '/admin' : user.role === 'doctor' ? '/doctor' : '/'
     return <Navigate to={fallback} replace />
   }

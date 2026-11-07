@@ -16,21 +16,54 @@ service cloud.firestore {
     function isAssignedDoctor(patientId) {
       return isDoctor()
         && (
-          get(/databases/$(database)/documents/users/$(patientId)).data.assignedDoctorId == request.auth.uid
+          (exists(/databases/$(database)/documents/users/$(patientId))
+            && get(/databases/$(database)/documents/users/$(patientId)).data.get('assignedDoctorId', null) == request.auth.uid)
           || hasDoctorPatientLink(patientId)
           || hasDeterministicAssignment(patientId)
         );
     }
     function canOwnerUpdateProfile(userId) {
         return isOwner(userId)
-          && resource.data.role == 'patient'
-          && request.resource.data.role == 'patient'
-          && request.resource.data.role == resource.data.role
-          && request.resource.data.assignedDoctorId == resource.data.assignedDoctorId
+          && resource.data.get('role', 'patient') == 'patient'
+          && request.resource.data.get('role', 'patient') == 'patient'
+          && request.resource.data.get('assignedDoctorId', null) == resource.data.get('assignedDoctorId', null)
           && request.resource.data.diff(resource.data).changedKeys().hasOnly([
             'name',
             'symptoms',
-            'name'
+            'middleName',
+            'username',
+            'email',
+            'authProviders',
+            'lastLoginProvider',
+            'firstName',
+            'lastName',
+            'birthday',
+            'weightKg',
+            'heightCm',
+            'lmpDate',
+            'eddDate',
+            'isFirstPregnancy',
+            'isCycleRegular',
+            'shortestCycleDays',
+            'longestCycleDays',
+            'hasHadUltrasound',
+            'positiveTestDate',
+            'scanDate',
+            'scanWeeks',
+            'scanDays',
+            'iceName',
+            'iceRelationship',
+            'icePrimaryPhone',
+            'iceSecondaryPhone',
+            'pregnancyHistories',
+            'onboardingCompleted',
+            'updatedAt',
+            'stepsGoal',
+            'steps',
+            'heartRateBpm',
+            'sleepHours',
+            'sleepMinutes',
+            'spO2'
           ]);
       }
     function isAssignedDoctorForResource() {
@@ -62,7 +95,7 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow create: if isOwner(userId) && request.resource.data.role == 'patient';
+      allow create: if isOwner(userId) && request.resource.data.get('role', 'patient') == 'patient';
       allow read: if isOwner(userId)
         || isAssignedDoctor(userId)
         || (isAdmin() && resource.data.role in ['admin', 'doctor']);
@@ -111,7 +144,7 @@ service cloud.firestore {
     }
 
     match /auditLogs/{logId} {
-      allow read: if false;
+      allow read: if isAdmin();
       allow write: if false;
     }
 
@@ -150,6 +183,10 @@ service cloud.firestore {
       allow create: if isOwner(userId);
       allow read: if isOwner(userId) || isAssignedDoctor(userId);
       allow update, delete: if isOwner(userId);
+    }
+
+    match /users/{userId}/pregnancy_history/{historyId} {
+      allow read, write: if isOwner(userId) || isAssignedDoctor(userId);
     }
 
     match /{document=**} {
