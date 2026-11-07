@@ -71,7 +71,7 @@ The default bootstrap emails are `primera_admin@email.com` and `primera_doctor@e
 
 Deploy the free-plan Firestore security rules from the project root with `npx firebase-tools deploy --only firestore`. Cloud Functions deployment requires the Firebase Blaze plan; the admin portal can load the staff directory without Functions, but staff mutations require the deployed callable functions.
 
-The current dashboard records remain prototype fallback data only when Firebase web config is missing. The admin portal does not load or substitute patient records in either prototype or live mode.
+The current dashboard records remain prototype fallback data only when Firebase web config is missing. On the Firebase Spark plan, the admin portal loads staff summaries directly from Firestore but does not show patient-derived overview metrics because those require a secured callable backend. Deploying the Functions service requires the Blaze plan. The admin portal does not load or substitute patient records in either prototype or live mode.
 
 ## Summary
 
