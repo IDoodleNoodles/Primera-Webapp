@@ -1,10 +1,4 @@
-import type { AuditLog, ClinicalEvidenceRecord, DashboardMetric, DoctorAlert, DoctorLinkRequest, Patient, PatientClinicalEvidence } from '../types'
-
-export const mockDoctors = [
-  { id: 'doctor-1', name: 'Dr. Patel', specialty: 'Maternal-Fetal Medicine' },
-  { id: 'doctor-2', name: 'Dr. Nguyen', specialty: 'OBGYN' },
-  { id: 'doctor-3', name: 'Dr. Silva', specialty: 'High-Risk Pregnancy' },
-]
+import type { ClinicalEvidenceRecord, DoctorAlert, DoctorLinkRequest, Patient, PatientClinicalEvidence } from '../types'
 
 export const mockPatients: Patient[] = [
   {
@@ -121,50 +115,6 @@ export const mockPatients: Patient[] = [
   },
 ]
 
-export const mockAdminLinkRequests = [
-  { id: 'request-1', patientId: 'patient-3', patientName: 'Zoe Williams', doctorId: 'doctor-2', doctorName: 'Dr. Nguyen', status: 'pending' as const, createdAt: '2026-08-21T10:00:00Z' },
-]
-
-export function getMockLinkRequests() {
-  return [...mockAdminLinkRequests]
-}
-
-export const mockAdminMetrics: DashboardMetric[] = [
-  { label: 'Active OBGYNs', value: '18', change: '+2 this month' },
-  { label: 'Unassigned cases', value: '5', change: '2 require review' },
-  { label: 'Audit events', value: '3', change: 'Recent portal activity' },
-]
-
-export const mockActivityLog: AuditLog[] = [
-  {
-    id: 'audit-1',
-    actorId: 'admin-1',
-    actorName: 'Admin Rivera',
-    action: 'Assigned pregnancy case to Dr. Patel',
-    targetId: 'patient-1',
-    targetType: 'assignment',
-    timestamp: '2026-08-20T09:15:00Z',
-  },
-  {
-    id: 'audit-2',
-    actorId: 'doctor-1',
-    actorName: 'Dr. Patel',
-    action: 'Reviewed smartwatch vitals and symptom trend',
-    targetId: 'patient-1',
-    targetType: 'patient',
-    timestamp: '2026-08-20T10:05:00Z',
-  },
-  {
-    id: 'audit-3',
-    actorId: 'admin-1',
-    actorName: 'Admin Rivera',
-    action: 'Disabled access for inactive OBGYN',
-    targetId: 'doctor-3',
-    targetType: 'doctor',
-    timestamp: '2026-08-19T16:42:00Z',
-  },
-]
-
 export const mockDoctorAlerts: DoctorAlert[] = [
   {
     id: 'alert-1',
@@ -198,48 +148,6 @@ export const mockDoctorLinkRequests: DoctorLinkRequest[] = [
     createdAt: '2026-08-21T09:30:00Z',
   },
 ]
-
-export function getMockAdminDashboard() {
-  const adminPatients = mockPatients.map(({ id, name, assignedDoctorId, riskLevel, riskScore, status, lastCheckIn, alertCount }) => ({
-    id,
-    name,
-    assignedDoctorId,
-    active: true,
-    activationStatus: 'active' as const,
-    riskLevel,
-    riskScore,
-    status,
-    lastCheckIn,
-    alertCount,
-  }))
-
-  return {
-    metrics: [
-      mockAdminMetrics[0],
-      { label: 'Active patient accounts', value: String(adminPatients.length), change: `${adminPatients.length} total patient accounts` },
-      mockAdminMetrics[1],
-      mockAdminMetrics[2],
-    ],
-    overview: {
-      totalCases: adminPatients.length,
-      totalAssigned: adminPatients.filter((patient) => patient.assignedDoctorId).length,
-      unassigned: adminPatients.filter((patient) => !patient.assignedDoctorId).length,
-    },
-    activityLog: mockActivityLog,
-    patients: adminPatients,
-  }
-}
-
-export function getMockStaffAccounts() {
-  return mockDoctors.map((doctor) => ({
-    uid: doctor.id,
-    name: doctor.name,
-    email: '',
-    role: 'doctor' as const,
-    active: true,
-    specialty: doctor.specialty,
-  }))
-}
 
 export function getMockAssignedPatients(doctorId: string) {
   const matched = mockPatients.filter((patient) => patient.assignedDoctorId === doctorId)

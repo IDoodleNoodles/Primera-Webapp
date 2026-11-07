@@ -52,19 +52,6 @@ service cloud.firestore {
           'lastCheckIn'
         ]);
     }
-    function canAdminManagePatientAccount() {
-      return isAdmin()
-        && request.resource.data.role == 'patient'
-        && (!resource.data.keys().hasAny(['role']) || resource.data.role == 'patient')
-        && request.resource.data.diff(resource.data).changedKeys().hasOnly([
-          'name',
-          'assignedDoctorId',
-          'active',
-          'activationStatus',
-          'role',
-          'updatedAt'
-        ]);
-    }
     function canDoctorUpdateLinkRequest() {
       return isDoctor()
         && resource.data.doctorId == request.auth.uid
@@ -75,19 +62,12 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow create: if (isOwner(userId) && request.resource.data.role == 'patient') || (isAdmin()
-        && request.resource.data.role == 'patient'
-        && request.resource.data.keys().hasOnly([
-          'name',
-          'assignedDoctorId',
-          'active',
-          'activationStatus',
-          'role',
-          'createdAt'
-        ]));
-      allow read: if isAdmin() || isOwner(userId) || isAssignedDoctor(userId);
-      allow update: if canOwnerUpdateProfile(userId) || canAdminManagePatientAccount() || canDoctorUpdateAssignedPatient(userId);
-      allow delete: if isAdmin();
+      allow create: if isOwner(userId) && request.resource.data.role == 'patient';
+      allow read: if isOwner(userId)
+        || isAssignedDoctor(userId)
+        || (isAdmin() && resource.data.role in ['admin', 'doctor']);
+      allow update: if canOwnerUpdateProfile(userId) || canDoctorUpdateAssignedPatient(userId);
+      allow delete: if false;
     }
 
     match /doctors/{doctorId} {
@@ -96,8 +76,8 @@ service cloud.firestore {
     }
 
     match /doctors/{doctorId}/assignedPatients/{patientId} {
-      allow read: if isAdmin() || isOwner(doctorId);
-      allow write: if isAdmin();
+      allow read: if isOwner(doctorId);
+      allow write: if false;
     }
 
     match /admins/{adminId} {
@@ -105,8 +85,8 @@ service cloud.firestore {
     }
 
     match /assignments/{assignmentId} {
-      allow read: if isAdmin() || (isDoctor() && resource.data.doctorId == request.auth.uid) || isOwner(resource.data.patientId);
-      allow write: if isAdmin();
+      allow read: if (isDoctor() && resource.data.doctorId == request.auth.uid) || isOwner(resource.data.patientId);
+      allow write: if false;
     }
 
     match /alerts/{alertId} {
@@ -120,19 +100,18 @@ service cloud.firestore {
     match /doctorLinkRequests/{requestId} {
       allow create: if isOwner(request.resource.data.patientId)
         && request.resource.data.status == 'pending';
-      allow read: if isAdmin()
-        || (isDoctor() && resource.data.doctorId == request.auth.uid)
+      allow read: if (isDoctor() && resource.data.doctorId == request.auth.uid)
         || isOwner(resource.data.patientId);
       allow update: if (isOwner(resource.data.patientId)
           && resource.data.status == 'pending'
           && request.resource.data.status == 'cancelled'
           && request.resource.data.diff(resource.data).changedKeys().hasOnly(['status']))
         || canDoctorUpdateLinkRequest();
-      allow delete: if isAdmin() || isOwner(resource.data.patientId);
+      allow delete: if isOwner(resource.data.patientId);
     }
 
     match /auditLogs/{logId} {
-      allow read: if isAdmin();
+      allow read: if false;
       allow write: if false;
     }
 
@@ -156,7 +135,9 @@ service cloud.firestore {
     match /checkins/{checkinId} {
       allow create: if isOwner(request.resource.data.userId);
       allow read: if isOwner(resource.data.userId) || isAssignedDoctorForResource();
-      allow update, delete: if isOwner(resource.data.userId);
+      allow update: if isOwner(resource.data.userId)
+        && request.resource.data.userId == resource.data.userId;
+      allow delete: if isOwner(resource.data.userId);
     }
 
     match /goals/{goalId} {

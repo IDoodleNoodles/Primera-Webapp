@@ -5,6 +5,27 @@ import { doc, getDoc } from 'firebase/firestore'
 import { auth, db, firebaseConfigured } from '../firebase'
 import type { Role, UserSession } from '../types'
 
+function describeAuthError(authError: unknown) {
+  const code = typeof authError === 'object' && authError && 'code' in authError
+    ? String(authError.code)
+    : ''
+
+  if (code === 'auth/invalid-credential' || code === 'auth/wrong-password' || code === 'auth/user-not-found') {
+    return 'Invalid email or password. Confirm the staff account exists and try again.'
+  }
+  if (code === 'auth/user-disabled') {
+    return 'This staff account is disabled. Ask an administrator to enable it.'
+  }
+  if (code === 'auth/too-many-requests') {
+    return 'Too many sign-in attempts. Wait a few minutes and try again.'
+  }
+  if (code === 'auth/network-request-failed') {
+    return 'Unable to reach Firebase Authentication. Check your connection and try again.'
+  }
+
+  return authError instanceof Error ? authError.message : 'Unable to load portal access.'
+}
+
 type AuthContextValue = {
   user: UserSession | null
   loading: boolean
@@ -39,13 +60,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       try {
-        const tokenResult = await firebaseUser.getIdTokenResult()
+        const tokenResult = await firebaseUser.getIdTokenResult(true)
         const role = tokenResult.claims.role as Role | undefined
         const profile = await getDoc(doc(firestore, 'users', firebaseUser.uid))
         const profileData = profile.data()
 
         if (role !== 'admin' && role !== 'doctor') {
-          setError('This portal is restricted to admin and OBGYN accounts.')
+          setError('Your account is authenticated but has no valid portal role. Run the staff role setup, then sign out and sign in again.')
           await signOut(firebaseAuth)
           setUser(null)
         } else {
@@ -60,7 +81,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       } catch (authError) {
         setUser(null)
-        setError(authError instanceof Error ? authError.message : 'Unable to load portal access.')
+        setError(describeAuthError(authError))
         await signOut(firebaseAuth).catch(() => undefined)
       } finally {
         setLoading(false)
@@ -79,7 +100,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         setError(null)
-        await signInWithEmailAndPassword(auth, email, password)
+        const credential = await signInWithEmailAndPassword(auth, email.trim(), password)
+        await credential.user.getIdToken(true)
       },
       changePassword: async (password) => {
         if (!auth?.currentUser) {

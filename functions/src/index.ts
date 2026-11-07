@@ -1,7 +1,7 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
 import { getApps, initializeApp } from 'firebase-admin/app'
 import { getAuth } from 'firebase-admin/auth'
-import { getFirestore, FieldValue, FieldPath } from 'firebase-admin/firestore'
+import { getFirestore, FieldValue } from 'firebase-admin/firestore'
 import type { DocumentReference } from 'firebase-admin/firestore'
 
 if (!getApps().length) initializeApp()
@@ -10,28 +10,11 @@ const auth = getAuth()
 const db = getFirestore()
 const allowedRoles = new Set(['admin', 'doctor'])
 
-type AdminPatient = {
-  id: string
-  name: string
-  assignedDoctorId: string | null
-  active: boolean
-  activationStatus: 'pending' | 'active'
-  riskLevel?: string
-  riskScore?: number
-  status?: string
-  lastCheckIn?: unknown
-  alertCount?: number
-}
-
 function readName(data: Record<string, unknown>, fallback: string) {
   if (typeof data.name === 'string' && data.name.trim()) return data.name.trim()
   const firstName = typeof data.firstName === 'string' ? data.firstName.trim() : ''
   const lastName = typeof data.lastName === 'string' ? data.lastName.trim() : ''
   return [firstName, lastName].filter(Boolean).join(' ') || fallback
-}
-
-function isPatientProfile(data: Record<string, unknown>) {
-  return data.role === 'patient' || (data.role !== 'admin' && data.role !== 'doctor')
 }
 
 function requireAdmin(request: { auth?: { token?: Record<string, unknown> } }) {
@@ -61,10 +44,6 @@ async function writeAdminAudit(request: { auth?: { uid?: string; token?: Record<
 
 function pageSize(value: unknown) {
   return typeof value === 'number' && Number.isInteger(value) ? Math.min(Math.max(value, 1), 100) : 50
-}
-
-function pageCursor(value: unknown) {
-  return typeof value === 'string' && value.length <= 200 ? value : undefined
 }
 
 async function commitOperations(operations: Array<{ ref: DocumentReference; action: 'delete' | 'unassign' }>) {
@@ -124,7 +103,14 @@ export const createStaffAccount = onCall(async (request) => {
     await writeAdminAudit(request, 'Created staff account', user.uid, data.role === 'doctor' ? 'doctor' : 'system')
     return { uid: user.uid }
   } catch (error) {
-    if (createdUid) await auth.deleteUser(createdUid).catch(() => undefined)
+    if (createdUid) {
+      await auth.deleteUser(createdUid).catch(() => undefined)
+      await Promise.all([
+        db.doc(`users/${createdUid}`).delete().catch(() => undefined),
+        db.doc(`doctors/${createdUid}`).delete().catch(() => undefined),
+        db.doc(`admins/${createdUid}`).delete().catch(() => undefined),
+      ])
+    }
     const code = error instanceof Error && error.message.includes('already')
       ? 'already-exists'
       : 'internal'
@@ -132,56 +118,18 @@ export const createStaffAccount = onCall(async (request) => {
   }
 })
 
-export const fetchAdminPatientDirectory = onCall(async (request) => {
-  requireAdmin(request)
-
-  const data = request.data as { search?: string; pageSize?: number; pageToken?: string }
-  const search = typeof data.search === 'string' ? data.search.trim() : ''
-  let directoryQuery = db.collection('users')
-    .where('role', '==', 'patient')
-    .orderBy(search ? 'name' : FieldPath.documentId())
-    .limit(pageSize(data.pageSize))
-  if (search) directoryQuery = directoryQuery
-    .where('name', '>=', search)
-    .where('name', '<=', `${search}\uf8ff`)
-  if (pageCursor(data.pageToken)) {
-    const cursor = await db.doc(`users/${data.pageToken}`).get()
-    if (cursor.exists) directoryQuery = directoryQuery.startAfter(cursor)
-  }
-  const snapshot = await directoryQuery.get()
-  const items = snapshot.docs.map((entry): AdminPatient => ({
-      id: entry.id,
-      name: readName(entry.data(), 'Unnamed patient'),
-      assignedDoctorId: typeof entry.data().assignedDoctorId === 'string' ? entry.data().assignedDoctorId : null,
-      active: entry.data().active !== false,
-      activationStatus: entry.data().activationStatus === 'pending' ? 'pending' : 'active',
-      riskLevel: typeof entry.data().riskLevel === 'string' ? entry.data().riskLevel : 'low',
-      riskScore: typeof entry.data().riskScore === 'number' ? entry.data().riskScore : 0,
-      status: typeof entry.data().status === 'string' ? entry.data().status : 'stable',
-      lastCheckIn: entry.data().lastCheckIn,
-      alertCount: typeof entry.data().alertCount === 'number' ? entry.data().alertCount : 0,
-    }))
-  return { items, nextPageToken: snapshot.size === pageSize(data.pageSize) ? snapshot.docs.at(-1)?.id ?? null : null }
-})
-
 export const fetchAdminStaffDirectory = onCall(async (request) => {
   requireAdmin(request)
 
   const data = request.data as { search?: string; pageSize?: number; pageToken?: string }
   const search = typeof data.search === 'string' ? data.search.trim() : ''
-  let directoryQuery = db.collection('users')
+  const snapshot = await db.collection('users')
     .where('role', 'in', ['doctor', 'admin'])
-    .orderBy(search ? 'name' : FieldPath.documentId())
     .limit(pageSize(data.pageSize))
-  if (search) directoryQuery = directoryQuery
-    .where('name', '>=', search)
-    .where('name', '<=', `${search}\uf8ff`)
-  if (pageCursor(data.pageToken)) {
-    const cursor = await db.doc(`users/${data.pageToken}`).get()
-    if (cursor.exists) directoryQuery = directoryQuery.startAfter(cursor)
-  }
-  const snapshot = await directoryQuery.get()
-  const items = snapshot.docs.map((entry) => ({
+    .get()
+  const normalizedSearch = search.toLocaleLowerCase()
+  const items = snapshot.docs
+    .map((entry) => ({
       uid: entry.id,
       name: readName(entry.data(), 'Unnamed staff member'),
       email: typeof entry.data().email === 'string' ? entry.data().email : '',
@@ -189,7 +137,9 @@ export const fetchAdminStaffDirectory = onCall(async (request) => {
       active: entry.data().active !== false,
       specialty: typeof entry.data().specialty === 'string' ? entry.data().specialty : undefined,
     }))
-  return { items, nextPageToken: snapshot.size === pageSize(data.pageSize) ? snapshot.docs.at(-1)?.id ?? null : null }
+    .filter((entry) => !normalizedSearch || entry.name.toLocaleLowerCase().includes(normalizedSearch))
+    .sort((left, right) => left.name.localeCompare(right.name))
+  return { items, nextPageToken: null }
 })
 
 export const setStaffAccountStatus = onCall(async (request) => {
@@ -198,6 +148,9 @@ export const setStaffAccountStatus = onCall(async (request) => {
   const data = request.data as { uid?: string; active?: boolean }
   if (!data.uid || typeof data.active !== 'boolean') {
     throw new HttpsError('invalid-argument', 'uid and active status are required.')
+  }
+  if (data.uid === request.auth?.uid) {
+    throw new HttpsError('failed-precondition', 'You cannot change your own account status.')
   }
 
   const staffProfile = await db.doc(`users/${data.uid}`).get()
@@ -221,6 +174,9 @@ export const updateStaffAccount = onCall(async (request) => {
   const data = request.data as { uid?: string; name?: string; role?: string }
   if (!data.uid || !data.name || !data.role || !allowedRoles.has(data.role)) {
     throw new HttpsError('invalid-argument', 'uid, name, and a valid role are required.')
+  }
+  if (data.uid === request.auth?.uid) {
+    throw new HttpsError('failed-precondition', 'You cannot change your own account role.')
   }
 
   const user = await auth.updateUser(data.uid, { displayName: data.name })
@@ -286,34 +242,6 @@ export const deleteStaffAccount = onCall(async (request) => {
   return { uid: data.uid }
 })
 
-export const deletePatientAccount = onCall(async (request) => {
-  requireAdmin(request)
-
-  const data = request.data as { patientId?: string }
-  if (!data.patientId) throw new HttpsError('invalid-argument', 'patientId is required.')
-
-  const assignments = await db.collection('assignments').where('patientId', '==', data.patientId).get()
-  const doctorIds = assignments.docs
-    .map((entry) => entry.data().doctorId)
-    .filter((doctorId): doctorId is string => typeof doctorId === 'string')
-  const dependentCollections = ['alerts', 'activity_logs', 'auditLogs', 'transcriptions', 'checkins', 'goals']
-  const dependentSnapshots = await Promise.all(dependentCollections.map((name) => {
-    const field = name === 'alerts' ? 'patientId' : name === 'auditLogs' ? 'targetId' : 'userId'
-    return db.collection(name).where(field, '==', data.patientId).get()
-  }))
-  const smartwatch = await db.collection(`users/${data.patientId}/smartwatchHealthRecords`).get()
-  await commitOperations([
-    { ref: db.doc(`users/${data.patientId}`), action: 'delete' },
-    ...assignments.docs.map((entry) => ({ ref: entry.ref, action: 'delete' as const })),
-    ...doctorIds.map((doctorId) => ({ ref: db.doc(`doctors/${doctorId}/assignedPatients/${data.patientId}`), action: 'delete' as const })),
-    ...dependentSnapshots.flatMap((snapshot) => snapshot.docs.map((entry) => ({ ref: entry.ref, action: 'delete' as const }))),
-    ...smartwatch.docs.map((entry) => ({ ref: entry.ref, action: 'delete' as const })),
-  ])
-
-  await writeAdminAudit(request, 'Deleted patient account', data.patientId, 'patient')
-  return { id: data.patientId }
-})
-
 export const respondToDoctorLinkRequest = onCall(async (request) => {
   if (request.auth?.token?.role !== 'doctor') {
     throw new HttpsError('permission-denied', 'Only participating doctors can respond to link requests.')
@@ -366,44 +294,6 @@ export const respondToDoctorLinkRequest = onCall(async (request) => {
   return { success: true }
 })
 
-export const respondToAdminLinkRequest = onCall(async (request) => {
-  requireAdmin(request)
-  const data = request.data as { requestId?: string; decision?: string }
-  if (!data.requestId || (data.decision !== 'accept' && data.decision !== 'decline')) {
-    throw new HttpsError('invalid-argument', 'requestId and an accept or decline decision are required.')
-  }
-  const requestRef = db.doc(`doctorLinkRequests/${data.requestId}`)
-  const snapshot = await requestRef.get()
-  const linkRequest = snapshot.data()
-  if (!snapshot.exists || linkRequest?.status !== 'pending') {
-    throw new HttpsError('failed-precondition', 'This link request is no longer available.')
-  }
-  const patientId = linkRequest.patientId
-  const doctorId = linkRequest.doctorId
-  if (typeof patientId !== 'string' || typeof doctorId !== 'string') {
-    throw new HttpsError('invalid-argument', 'The link request is missing a patient or doctor.')
-  }
-  if (data.decision === 'decline') {
-    await requestRef.update({ status: 'declined', respondedAt: FieldValue.serverTimestamp(), respondedBy: request.auth?.uid })
-    await writeAdminAudit(request, 'Declined doctor link request', patientId, 'assignment')
-    return { success: true }
-  }
-  const batch = db.batch()
-  const previousAssignments = await db.collection('assignments').where('patientId', '==', patientId).get()
-  previousAssignments.docs.forEach((entry) => {
-    const previousDoctorId = entry.data().doctorId
-    batch.delete(entry.ref)
-    if (typeof previousDoctorId === 'string') batch.delete(db.doc(`doctors/${previousDoctorId}/assignedPatients/${patientId}`))
-  })
-  batch.update(db.doc(`users/${patientId}`), { assignedDoctorId: doctorId, updatedAt: FieldValue.serverTimestamp() })
-  batch.set(db.doc(`assignments/${doctorId}_${patientId}`), { patientId, doctorId, source: 'admin-request', assignedAt: FieldValue.serverTimestamp() })
-  batch.set(db.doc(`doctors/${doctorId}/assignedPatients/${patientId}`), { patientId, source: 'admin-request', assignedAt: FieldValue.serverTimestamp() }, { merge: true })
-  batch.update(requestRef, { status: 'accepted', respondedAt: FieldValue.serverTimestamp(), respondedBy: request.auth?.uid })
-  await batch.commit()
-  await writeAdminAudit(request, 'Accepted doctor link request', patientId, 'assignment')
-  return { success: true }
-})
-
 export const resetStaffPassword = onCall(async (request) => {
   requireAdmin(request)
 
@@ -431,6 +321,9 @@ export const writeAuditLog = onCall(async (request) => {
   const targetTypes = new Set(['patient', 'doctor', 'assignment', 'system'])
   if (!data.action || data.action.length > 120 || !data.targetId || data.targetId.length > 200 || !data.targetType || !targetTypes.has(data.targetType)) {
     throw new HttpsError('invalid-argument', 'action, targetId, and targetType are required.')
+  }
+  if (request.auth.token.role === 'admin' && (data.targetType === 'patient' || data.targetType === 'assignment')) {
+    throw new HttpsError('permission-denied', 'Administrators cannot create patient-linked audit events.')
   }
 
   await db.collection('auditLogs').add({

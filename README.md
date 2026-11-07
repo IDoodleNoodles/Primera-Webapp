@@ -7,7 +7,7 @@ Primera is an AI-assisted pregnancy support platform designed to improve materna
 The system combines a patient-facing mobile experience with a clinical web portal that supports the care team:
 
 - patient app: pregnancy tracking, symptom reporting, smartwatch health data, and personalized daily goals
-- web admin portal: system oversight, assignment management, and operational monitoring
+- web admin portal: staff account and system administration only; it cannot access patient records, clinical data, assignments, link requests, risk information, or patient-linked audit details
 - doctor / OB-GYN portal: assigned patient review, risk monitoring, and clinical workflow support
 
 ## Why it matters
@@ -30,10 +30,10 @@ Primera uses a hybrid linking model:
 - A patient can use the mobile app without a participating doctor and continue relying on the printable maternal health summary.
 - A patient can request a link to a participating doctor. The request is stored as `doctorLinkRequests/{requestId}` and remains pending until that doctor accepts or declines it.
 - Accepting a request creates the assignment, updates the patient profile, and adds the patient to the doctor's assigned-patient queue.
-- Admins can assign, reassign, or unassign patients immediately from the Patient Registry and Assignments pages. These administrative actions override the request path and are recorded as the active assignment.
+- Patient-doctor assignments are managed through the clinical workflow and are not exposed to administrators.
 - Only accepted or administratively assigned patients appear in Doctor Assigned Patients and can be opened in Patient Details.
 
-The doctor response is handled by the `respondToDoctorLinkRequest` callable function so the request decision and assignment records are updated together. Firestore rules allow patients to create and view their own requests, doctors to view requests addressed to them, and admins to manage the operational registry.
+The doctor response is handled by the `respondToDoctorLinkRequest` callable function so the request decision and assignment records are updated together. Firestore rules allow patients to create and view their own requests and doctors to view requests addressed to them. Administrators do not access link requests or the operational patient registry.
 
 ## Architecture
 
@@ -69,10 +69,10 @@ npm run bootstrap
 
 The default bootstrap emails are `primera_admin@email.com` and `primera_doctor@email.com`. The script sets the `admin` and `doctor` custom claims and creates their profile documents. Never commit service-account JSON files or passwords.
 
-Deploy from the project root with `firebase deploy --only functions,firestore`.
+Deploy the free-plan Firestore security rules from the project root with `npx firebase-tools deploy --only firestore`. Cloud Functions deployment requires the Firebase Blaze plan; the admin portal can load the staff directory without Functions, but staff mutations require the deployed callable functions.
 
-The current dashboard records remain prototype fallback data only when Firebase web config is missing. Live dashboards no longer substitute sample patients after a Firestore error.
+The current dashboard records remain prototype fallback data only when Firebase web config is missing. The admin portal does not load or substitute patient records in either prototype or live mode.
 
 ## Summary
 
-Primera is a maternal health platform that helps pregnant users stay supported and informed while giving clinicians and administrators the tools to monitor patients safely and efficiently.
+Primera is a maternal health platform that helps pregnant users stay supported and informed while giving clinicians clinical tools and administrators staff/system-management tools.
