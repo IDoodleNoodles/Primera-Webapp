@@ -96,7 +96,8 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow create: if isOwner(userId) && request.resource.data.get('role', 'patient') == 'patient';
-      allow read: if isOwner(userId)
+      allow read: if isAdmin()
+        || isOwner(userId)
         || isAssignedDoctor(userId)
         || (isAdmin() && resource.data.role in ['admin', 'doctor']);
       allow update: if canOwnerUpdateProfile(userId) || canDoctorUpdateAssignedPatient(userId);
@@ -109,7 +110,7 @@ service cloud.firestore {
     }
 
     match /doctors/{doctorId}/assignedPatients/{patientId} {
-      allow read: if isOwner(doctorId);
+      allow read: if isAdmin() || isOwner(doctorId);
       allow write: if false;
     }
 
@@ -118,7 +119,9 @@ service cloud.firestore {
     }
 
     match /assignments/{assignmentId} {
-      allow read: if (isDoctor() && resource.data.doctorId == request.auth.uid) || isOwner(resource.data.patientId);
+      allow read: if isAdmin()
+        || (isDoctor() && resource.data.doctorId == request.auth.uid)
+        || isOwner(resource.data.patientId);
       allow write: if false;
     }
 
@@ -161,7 +164,7 @@ service cloud.firestore {
 
     match /transcriptions/{transcriptionId} {
       allow create: if isOwner(request.resource.data.userId);
-      allow read: if isOwner(resource.data.userId) || isAssignedDoctorForResource();
+      allow read: if isAdmin() || isOwner(resource.data.userId) || isAssignedDoctorForResource();
       allow update, delete: if false;
     }
 
@@ -181,7 +184,7 @@ service cloud.firestore {
 
     match /users/{userId}/smartwatchHealthRecords/{recordId} {
       allow create: if isOwner(userId);
-      allow read: if isOwner(userId) || isAssignedDoctor(userId);
+      allow read: if isAdmin() || isOwner(userId) || isAssignedDoctor(userId);
       allow update, delete: if isOwner(userId);
     }
 

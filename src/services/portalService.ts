@@ -1,5 +1,5 @@
 import type { ClinicalEvidenceRecord, DashboardMetric, DoctorAlert, DoctorLinkRequest, Patient, PatientClinicalEvidence } from '../types'
-import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, limit, orderBy, query, serverTimestamp, updateDoc, where } from 'firebase/firestore'
+import { addDoc, collection, collectionGroup, deleteDoc, doc, getDoc, getDocs, limit, orderBy, query, serverTimestamp, updateDoc, where } from 'firebase/firestore'
 import { db, firebaseConfigured } from '../firebase'
 import { getFunctions, httpsCallable } from 'firebase/functions'
 
@@ -437,10 +437,71 @@ export async function fetchAdminDashboardData(userId: string, patientSearch = ''
 
   void userId
   void patientSearch
-  const staff = await fetchStaffAccounts()
+  const firestore = db
+  const [userSnapshot, assignmentSnapshot, smartwatchSnapshot, transcriptionSnapshot] = await Promise.all([
+    getDocs(collection(firestore, 'users')),
+    loadQueryDocs(() => getDocs(collection(firestore, 'assignments'))),
+    loadQueryDocs(() => getDocs(collectionGroup(firestore, 'smartwatchHealthRecords'))),
+    loadQueryDocs(() => getDocs(collection(firestore, 'transcriptions'))),
+  ])
+  const staff = userSnapshot.docs
+    .filter((entry) => entry.data().role === 'admin' || entry.data().role === 'doctor')
+    .map((entry): StaffAccount => ({
+      uid: entry.id,
+      name: readProfileName(entry.data(), 'Unnamed staff member'),
+      email: typeof entry.data().email === 'string' ? entry.data().email : '',
+      role: entry.data().role as 'admin' | 'doctor',
+      active: entry.data().active !== false,
+      specialty: typeof entry.data().specialty === 'string' ? entry.data().specialty : undefined,
+    }))
   const doctors = staff.filter((account) => account.role === 'doctor')
   const activeDoctors = doctors.filter((doctor) => doctor.active).length
   const activeStaff = staff.filter((account) => account.active).length
+  const patients = userSnapshot.docs
+    .filter((entry) => isPatientProfile(entry.data()))
+    .map((entry) => ({ id: entry.id, data: entry.data() }))
+  const assignmentsByDoctor = new Map<string, Set<string>>()
+  assignmentSnapshot.forEach((entry) => {
+    const data = entry.data()
+    if (typeof data.doctorId !== 'string') return
+    const patientId = typeof data.patientId === 'string' ? data.patientId : ''
+    if (!patientId) return
+    const patientIds = assignmentsByDoctor.get(data.doctorId) ?? new Set<string>()
+    patientIds.add(patientId)
+    assignmentsByDoctor.set(data.doctorId, patientIds)
+  })
+
+  const doctorWorkload = await Promise.all(doctors.map(async (doctor) => {
+    const assignedPatients = await loadQueryDocs(() => getDocs(collection(firestore, 'doctors', doctor.uid, 'assignedPatients')))
+    const patientIds = assignmentsByDoctor.get(doctor.uid) ?? new Set<string>()
+    patients.forEach((patient) => {
+      if (patient.data.assignedDoctorId === doctor.uid) patientIds.add(patient.id)
+    })
+    assignedPatients.forEach((entry) => {
+      const patientId = entry.data().patientId
+      patientIds.add(typeof patientId === 'string' ? patientId : entry.id)
+    })
+    return { doctorId: doctor.uid, name: doctor.name, patientCount: patientIds.size }
+  }))
+
+  const patientsWithoutDoctor = patients
+    .filter((patient) => typeof patient.data.assignedDoctorId !== 'string' || !patient.data.assignedDoctorId.trim())
+    .map((patient) => ({
+      displayName: readProfileName(patient.data, 'Unnamed patient'),
+      signedUpAt: toIsoTimestamp(patient.data.signedUpAt ?? patient.data.createdAt ?? patient.data.signupAt) || null,
+    }))
+    .sort((left, right) => {
+      if (!left.signedUpAt) return 1
+      if (!right.signedUpAt) return -1
+      return left.signedUpAt.localeCompare(right.signedUpAt)
+    })
+
+  const startOfToday = new Date()
+  startOfToday.setHours(0, 0, 0, 0)
+  const isToday = (value: unknown) => {
+    const timestamp = toIsoTimestamp(value)
+    return timestamp ? new Date(timestamp).getTime() >= startOfToday.getTime() : false
+  }
 
   return {
     metrics: [
@@ -448,7 +509,15 @@ export async function fetchAdminDashboardData(userId: string, patientSearch = ''
       { label: 'Active staff', value: String(activeStaff), change: `${staff.length} total staff accounts` },
     ],
     overview: { totalStaff: staff.length, activeStaff },
-    systemOverview: getEmptyAdminDashboard().systemOverview,
+    systemOverview: {
+      doctorWorkload: doctorWorkload.sort((left, right) => right.patientCount - left.patientCount || left.name.localeCompare(right.name)),
+      patientsWithoutDoctor,
+      pipeline: {
+        smartwatchSyncsToday: smartwatchSnapshot.filter((entry) => isToday(entry.data().syncedAt)).length,
+        voiceCheckInsToday: transcriptionSnapshot.filter((entry) => isToday(entry.data().timestamp)).length,
+        functionErrorCount: null,
+      },
+    },
   }
 }
 

@@ -55,7 +55,7 @@ function Overview({ dashboard, auditLogs, auditError, onRetryAudit }: {
 
   return (
     <>
-      <p className="muted">Patient-derived overview metrics require a deployed backend function and are unavailable on the Firebase Spark plan. Staff account summaries remain available.</p>
+      <p className="muted">Overview metrics are read directly from Firestore.</p>
       <section className="metric-grid" aria-label="Staff summary">
         <article className="metric-card"><span>Active staff</span><strong>{dashboard.overview.activeStaff}</strong><small>Currently enabled accounts</small></article>
         <article className="metric-card"><span>Total staff</span><strong>{dashboard.overview.totalStaff}</strong><small>Admin and doctor accounts</small></article>
@@ -74,8 +74,8 @@ function Overview({ dashboard, auditLogs, auditError, onRetryAudit }: {
           </section>
 
           <section className="panel">
-            <div className="panel-heading"><div><p className="eyebrow">Patients without a doctor</p><h3>Unavailable</h3></div></div>
-            <div className="state-block"><p>This patient-derived metric is unavailable on the Firebase Spark plan.</p></div>
+            <div className="panel-heading"><div><p className="eyebrow">Patients without a doctor</p><h3>{dashboard.systemOverview.patientsWithoutDoctor.length}</h3></div></div>
+            {dashboard.systemOverview.patientsWithoutDoctor.length === 0 ? <div className="state-block"><p>All patient accounts have a doctor.</p></div> : <ul className="log-list">{dashboard.systemOverview.patientsWithoutDoctor.map((patient) => <li key={`${patient.displayName}-${patient.signedUpAt ?? 'unknown'}`}><strong>{patient.displayName}</strong><time>{formatDate(patient.signedUpAt)}</time></li>)}</ul>}
           </section>
 
           <section className="panel">
