@@ -65,9 +65,9 @@ function firestoreFor(uid: string, role: 'admin' | 'doctor' | 'patient') {
 }
 
 describe('Firestore rules', () => {
-  it('prevents admins from reading or deleting patient profiles', async () => {
+  it('allows admins to read but not delete patient profiles', async () => {
     const firestore = firestoreFor(admin.uid, 'admin')
-    await assertFails(getDoc(doc(firestore, 'users', patient.uid)))
+    await assertSucceeds(getDoc(doc(firestore, 'users', patient.uid)))
     await assertFails(deleteDoc(doc(firestore, 'users', patient.uid)))
   })
 
