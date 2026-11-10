@@ -45,17 +45,6 @@ npm run backfill:account-summaries
 
 For emulator testing only, set `FIRESTORE_EMULATOR_HOST=127.0.0.1:8080` and `FIREBASE_PROJECT_ID=demo-primera`. The script refuses mismatched emulator variables. Do not run this script as part of the build or deployment.
 
-## Deployment
-
-Deployment is approved for `primera-eafe6`. Use the repository-local CLI, deploy Hosting first, then rules:
-
-```powershell
-node_modules\.bin\firebase.cmd deploy --only hosting --project primera-eafe6
-node_modules\.bin\firebase.cmd deploy --only firestore:rules --project primera-eafe6
-```
-
-No Functions deployment and no `--force` are permitted. Existing shared resources are not deleted.
-
 ## Smoke test
 
 - Sign in with the provisioned admin and confirm the overview counts and latest audit entries.

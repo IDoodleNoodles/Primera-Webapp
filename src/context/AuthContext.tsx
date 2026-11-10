@@ -6,13 +6,52 @@ import { auth, db, firebaseConfigured } from '../firebase'
 import { recordLogin, recordLogout, recordUnauthorizedAccess } from '../services/portalService'
 import type { UserSession } from '../types'
 
+type ErrorWithCode = { code?: unknown }
+
+function errorCode(error: unknown) {
+  return typeof error === 'object' && error && 'code' in error ? String((error as ErrorWithCode).code) : 'unknown'
+}
+
+class AdminCheckError extends Error {
+  constructor(message: string, code: string) {
+    super(message)
+    this.name = 'AdminCheckError'
+    this.code = code
+  }
+
+  code: string
+}
+
 function describeAuthError(authError: unknown) {
-  const code = typeof authError === 'object' && authError && 'code' in authError ? String(authError.code) : ''
+  const code = errorCode(authError)
+  if (code.startsWith('admin-') || code === 'permission-denied' || code === 'unavailable' || code === 'deadline-exceeded') {
+    return describeAdminCheckError(authError)
+  }
   if (code === 'auth/invalid-credential' || code === 'auth/wrong-password' || code === 'auth/user-not-found') return 'Invalid email or password.'
   if (code === 'auth/user-disabled') return 'This administrator account is disabled.'
   if (code === 'auth/too-many-requests') return 'Too many sign-in attempts. Try again later.'
   if (code === 'auth/network-request-failed') return 'Unable to reach Firebase Authentication.'
   return authError instanceof Error ? authError.message : 'Unable to load portal access.'
+}
+
+function describeAdminCheckError(error: unknown) {
+  const code = errorCode(error)
+  if (code === 'admin-profile-not-found') return 'Admin profile not found'
+  if (code === 'admin-account-inactive') return 'Admin account is inactive'
+  if (code === 'permission-denied') return 'Permission denied reading admin profile (check Firestore rules)'
+  if (code === 'unavailable' || code === 'deadline-exceeded' || code === 'network-request-failed') {
+    return 'Cannot reach Firestore (check ad blocker or network)'
+  }
+  return 'Unable to load portal access.'
+}
+
+function isAdminCheckError(error: unknown) {
+  const code = errorCode(error)
+  return code.startsWith('admin-') || code === 'permission-denied' || code === 'unavailable' || code === 'deadline-exceeded'
+}
+
+function logAuthError(error: unknown) {
+  console.error('[Auth] Sign-in or admin verification failed', { code: errorCode(error), error })
 }
 
 type AuthContextValue = {
@@ -31,11 +70,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(firebaseConfigured)
   const [error, setError] = useState<string | null>(null)
 
+  const checkAdminAccess = useCallback(async () => {
+    if (!auth?.currentUser || !db) return
+    const adminDocument = await getDoc(doc(db, 'admins', auth.currentUser.uid))
+    if (!adminDocument.exists()) throw new AdminCheckError('Admin profile not found', 'admin-profile-not-found')
+    if (adminDocument.data().active !== true) throw new AdminCheckError('Admin account is inactive', 'admin-account-inactive')
+  }, [])
+
   const verifyAdmin = useCallback(async () => {
     if (!auth?.currentUser || !db) return false
-    const adminDocument = await getDoc(doc(db, 'admins', auth.currentUser.uid))
-    return adminDocument.exists() && adminDocument.data().active === true
-  }, [])
+    try {
+      await checkAdminAccess()
+      return true
+    } catch (verificationError) {
+      logAuthError(verificationError)
+      setError(describeAdminCheckError(verificationError))
+      return false
+    }
+  }, [checkAdminAccess])
 
   useEffect(() => {
     if (!auth) {
@@ -44,18 +96,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const firebaseAuth = auth
     return onAuthStateChanged(firebaseAuth, async (firebaseUser) => {
-      setError(null)
       if (!firebaseUser) {
         setUser(null)
         setLoading(false)
         return
       }
 
+      setError(null)
       try {
-        if (!(await verifyAdmin())) {
-          await recordUnauthorizedAccess().catch(() => undefined)
-          throw new Error('This account is not authorized for the administrator portal.')
-        }
+        await checkAdminAccess()
         await recordLogin()
         setUser({
           uid: firebaseUser.uid,
@@ -64,14 +113,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           role: 'admin',
         })
       } catch (authError) {
+        if (isAdminCheckError(authError)) await recordUnauthorizedAccess().catch(() => undefined)
         setUser(null)
+        logAuthError(authError)
         setError(describeAuthError(authError))
         await signOut(firebaseAuth).catch(() => undefined)
       } finally {
         setLoading(false)
       }
     })
-  }, [verifyAdmin])
+  }, [checkAdminAccess])
 
   const value = useMemo<AuthContextValue>(() => ({
     user,
@@ -83,6 +134,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         await signInWithEmailAndPassword(auth, email.trim(), password)
       } catch (signInError) {
+        logAuthError(signInError)
         throw new Error(describeAuthError(signInError), { cause: signInError })
       }
     },
