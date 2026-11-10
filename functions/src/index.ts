@@ -1,15 +1,28 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
 import { getApps, initializeApp } from 'firebase-admin/app'
 import { getAuth } from 'firebase-admin/auth'
-import { getFirestore, FieldValue } from 'firebase-admin/firestore'
+import { getFirestore, FieldPath, FieldValue } from 'firebase-admin/firestore'
 import { buildAdminOverview } from './adminOverview.js'
 import { hasAdminRole } from './adminGuard.js'
+export {
+  fetchAdminDashboard,
+  fetchPatientAccounts,
+  updatePatientAccount,
+  setPatientAccountStatus,
+  resetPatientPassword,
+  fetchAuditLogs,
+  recordAuditExport,
+  recordAdminLogin,
+  recordAdminLogout,
+  recordAuthFailure,
+  projectPatientAccount,
+} from './adminPortal.js'
 
 if (!getApps().length) initializeApp()
 
 const auth = getAuth()
 const db = getFirestore()
-const allowedRoles = new Set(['admin', 'doctor'])
+const allowedRoles = new Set(['admin'])
 
 function readName(data: Record<string, unknown>, fallback: string) {
   if (typeof data.name === 'string' && data.name.trim()) return data.name.trim()
@@ -18,9 +31,33 @@ function readName(data: Record<string, unknown>, fallback: string) {
   return [firstName, lastName].filter(Boolean).join(' ') || fallback
 }
 
-function requireAdmin(request: { auth?: { token?: Record<string, unknown> } }) {
+async function requireAdmin(request: { auth?: { uid?: string; token?: Record<string, unknown> } }) {
   if (!hasAdminRole(request)) {
+    await db.collection('auditLogs').add({
+      actorId: request.auth?.uid ?? null,
+      action: 'Unauthorized admin action',
+      targetId: 'legacy-admin-callable',
+      targetType: 'system',
+      result: 'unauthorized',
+      timestamp: FieldValue.serverTimestamp(),
+    })
     throw new HttpsError('permission-denied', 'Only administrators can manage portal accounts.')
+  }
+  const [authUser, profileSnapshot] = await Promise.all([
+    auth.getUser(request.auth?.uid as string),
+    db.collection('users').where(FieldPath.documentId(), '==', request.auth?.uid as string).select('active', 'status').limit(1).get(),
+  ])
+  const profile = profileSnapshot.docs[0]?.data()
+  if (authUser.disabled || profile?.active === false || profile?.status === 'disabled') {
+    await db.collection('auditLogs').add({
+      actorId: request.auth?.uid ?? null,
+      action: 'Rejected disabled admin action',
+      targetId: 'legacy-admin-callable',
+      targetType: 'system',
+      result: 'unauthorized',
+      timestamp: FieldValue.serverTimestamp(),
+    })
+    throw new HttpsError('permission-denied', 'This administrator account is disabled.')
   }
 }
 
@@ -47,8 +84,8 @@ function pageSize(value: unknown) {
   return typeof value === 'number' && Number.isInteger(value) ? Math.min(Math.max(value, 1), 100) : 50
 }
 
-export const createStaffAccount = onCall(async (request) => {
-  requireAdmin(request)
+export const createStaffAccount = onCall({ enforceAppCheck: true }, async (request) => {
+  await requireAdmin(request)
 
   const data = request.data as { email?: string; password?: string; name?: string; role?: string }
   if (!data.email || !data.password || !data.name || !data.role || !allowedRoles.has(data.role)) {
@@ -108,8 +145,8 @@ export const createStaffAccount = onCall(async (request) => {
   }
 })
 
-export const fetchAdminStaffDirectory = onCall(async (request) => {
-  requireAdmin(request)
+export const fetchAdminStaffDirectory = onCall({ enforceAppCheck: true }, async (request) => {
+  await requireAdmin(request)
 
   const data = request.data as { search?: string; pageSize?: number; pageToken?: string }
   const search = typeof data.search === 'string' ? data.search.trim() : ''
@@ -132,13 +169,13 @@ export const fetchAdminStaffDirectory = onCall(async (request) => {
   return { items, nextPageToken: null }
 })
 
-export const fetchAdminOverview = onCall(async (request) => {
-  requireAdmin(request)
+export const fetchAdminOverview = onCall({ enforceAppCheck: true }, async (request) => {
+  await requireAdmin(request)
   return buildAdminOverview(db)
 })
 
-export const setStaffAccountStatus = onCall(async (request) => {
-  requireAdmin(request)
+export const setStaffAccountStatus = onCall({ enforceAppCheck: true }, async (request) => {
+  await requireAdmin(request)
 
   const data = request.data as { uid?: string; active?: boolean }
   if (!data.uid || typeof data.active !== 'boolean') {
@@ -163,8 +200,8 @@ export const setStaffAccountStatus = onCall(async (request) => {
   return { uid: data.uid, active: data.active }
 })
 
-export const updateStaffAccount = onCall(async (request) => {
-  requireAdmin(request)
+export const updateStaffAccount = onCall({ enforceAppCheck: true }, async (request) => {
+  await requireAdmin(request)
 
   const data = request.data as { uid?: string; name?: string; role?: string }
   if (!data.uid || !data.name || !data.role || !allowedRoles.has(data.role)) {
@@ -197,8 +234,8 @@ export const updateStaffAccount = onCall(async (request) => {
   return { uid: user.uid }
 })
 
-export const deleteStaffAccount = onCall(async (request) => {
-  requireAdmin(request)
+export const deleteStaffAccount = onCall({ enforceAppCheck: true }, async (request) => {
+  await requireAdmin(request)
 
   const data = request.data as { uid?: string }
   if (!data.uid) throw new HttpsError('invalid-argument', 'uid is required.')
@@ -277,8 +314,8 @@ export const respondToDoctorLinkRequest = onCall(async (request) => {
   return { success: true }
 })
 
-export const resetStaffPassword = onCall(async (request) => {
-  requireAdmin(request)
+export const resetStaffPassword = onCall({ enforceAppCheck: true }, async (request) => {
+  await requireAdmin(request)
 
   const data = request.data as { uid?: string }
   if (!data.uid) throw new HttpsError('invalid-argument', 'uid is required.')
