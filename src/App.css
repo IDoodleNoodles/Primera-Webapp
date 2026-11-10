@@ -248,7 +248,6 @@
   margin-top: 3px;
 }
 
-.workload-list,
 .pipeline-list {
   list-style: none;
   margin: 0;
@@ -257,32 +256,14 @@
   gap: 14px;
 }
 
-.workload-label,
 .pipeline-list li {
   display: flex;
   justify-content: space-between;
   gap: 12px;
 }
 
-.workload-label strong,
 .pipeline-list strong {
   color: var(--ink);
-}
-
-.workload-track {
-  height: 10px;
-  margin-top: 7px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: var(--bg-soft);
-}
-
-.workload-track span {
-  display: block;
-  height: 100%;
-  min-width: 4px;
-  border-radius: inherit;
-  background: var(--primary);
 }
 
 .status-badge {
@@ -506,35 +487,6 @@
 
 .attention-list span {
   color: var(--muted);
-}
-
-.checkin-grid {
-  display: grid;
-  gap: 12px;
-  margin-bottom: 20px;
-}
-
-.checkin-card {
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  padding: 15px;
-  background: var(--bg-soft);
-}
-
-.checkin-card .panel-heading {
-  margin-bottom: 8px;
-}
-
-.checkin-card p {
-  margin: 0 0 12px;
-}
-
-.checkin-meta {
-  display: flex;
-  gap: 14px;
-  flex-wrap: wrap;
-  color: var(--muted);
-  font-size: 0.85rem;
 }
 
 .trend-grid {

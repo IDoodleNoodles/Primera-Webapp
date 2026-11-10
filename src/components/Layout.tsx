@@ -14,48 +14,16 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div>
           <div className="brand"><span className="brand-mark">P</span> Primera Admin</div>
           <nav className="nav">
-            <NavLink to="/admin" className={baseLinkClass}>Overview</NavLink>
-            <NavLink to="/admin/doctors" className={baseLinkClass}>Doctor Registry</NavLink>
+            <NavLink to="/admin" end className={baseLinkClass}>Overview</NavLink>
+            <NavLink to="/admin/accounts" className={baseLinkClass}>Patient accounts</NavLink>
+            <NavLink to="/admin/audit" className={baseLinkClass}>Audit log</NavLink>
           </nav>
         </div>
-
         <div className="sidebar-footer">
           <div className="user-tag">{user?.name}</div>
-          <button className="button subtle" onClick={() => logout()}>
-            Sign out
-          </button>
+          <button className="button subtle" onClick={() => void logout()}>Sign out</button>
         </div>
       </aside>
-
-      <main className="content">{children}</main>
-    </div>
-  )
-}
-
-export function DoctorShell({ children }: { children: ReactNode }) {
-  const { user, logout } = useAuth()
-
-  return (
-    <div className="shell">
-      <aside className="sidebar">
-        <div>
-          <div className="brand"><span className="brand-mark">P</span> Primera OBGYN</div>
-          <nav className="nav">
-            <NavLink to="/doctor" end className={baseLinkClass}>Case Dashboard</NavLink>
-            <NavLink to="/doctor/patients" className={baseLinkClass}>Assigned Patients</NavLink>
-            <NavLink to="/doctor/alerts" className={baseLinkClass}>Alerts / Needs Review</NavLink>
-            <NavLink to="/doctor/profile" className={baseLinkClass}>Profile</NavLink>
-          </nav>
-        </div>
-
-        <div className="sidebar-footer">
-          <div className="user-tag">{user?.name}</div>
-          <button className="button subtle" onClick={() => logout()}>
-            Sign Out
-          </button>
-        </div>
-      </aside>
-
       <main className="content">{children}</main>
     </div>
   )
