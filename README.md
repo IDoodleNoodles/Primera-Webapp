@@ -1,50 +1,67 @@
 # Primera Admin Portal
 
-Primera's web app is an administrator-only portal for managing patient account basics and auditing administrative activity. Patient registration, authentication, maternal health records, wearable data, check-ins, notifications, and recommendations belong to the Android app and are not exposed here.
+The Primera web app is an administrator-only portal on the Firebase Spark plan. The deployed app uses only Firebase Authentication (email/password), Cloud Firestore, and Firebase Hosting. It does not use Cloud Functions, the Admin SDK, App Check enforcement, Cloud Scheduler, or paid APIs.
 
 ## Web scope
 
-Administrators can list, search, view, and edit only these patient account fields:
+Administrators can list, prefix-search, view, and edit only `accountSummaries/{uid}`. The summary contains `name`, `username`, `email`, `status`, `createdAt`, `lastActive`, `nameLower`, and `emailLower`. The portal never reads `users` or clinical collections. Patient registration and health data remain Android-owned.
 
-- name
-- username
-- email (read-only)
-- status
-- registration date
-- last active
+Status changes update only the summary. Android must enforce `status` at login and app start; the web portal cannot disable Firebase Authentication users. Password reset uses the client SDK to send recovery instructions to the stored email and never displays a password.
 
-Patient accounts cannot be created in this portal. Status changes update Firebase Authentication, revoke refresh tokens, and create an immutable server-side audit event. Password reset requests never return a password or reset link.
+## Provision the first administrator
 
-The browser has no direct Firestore read access to `users`. All account, dashboard, and audit data is returned by admin-protected callable functions as a basic-information projection. Clinical and Android-owned shared collections remain outside the web surface.
+1. In Firebase Console, open **Authentication > Users**, choose **Add user**, and create the administrator's email/password account.
+2. Copy the user's Auth UID.
+3. Open **Firestore Database > Data**, create the `admins` collection, and create a document whose ID is exactly that UID.
+4. Set the document field `active` to the boolean `true` (not the string `"true"`).
+5. Do not grant the web app access to `users`; administrators are authorized only by the active `admins/{uid}` document.
 
-## Development
+Admin documents are provisioned manually. Clients cannot create, update, or delete them.
 
-Copy `.env.example` to `.env.local`, add the Firebase web configuration, and enable Email/Password sign-in in Firebase Authentication.
+## Development and emulator checks
+
+Copy `.env.local.example` to `.env.local`, add the Firebase web configuration, and enable Email/Password sign-in. For local checks, set `VITE_USE_EMULATORS=true`; the app uses the `demo-primera` Auth and Firestore emulators.
 
 ```powershell
 npm install
 npm run build
 npm run lint
 npm run test:unit
-npm run test:rules
+firebase emulators:exec --only firestore --project demo-primera "npm run test:rules"
 ```
 
-Do not deploy from this branch during the refactor.
+Failed logins by unauthenticated users are not written to `auditLogs`: Firestore rules cannot safely authenticate and attribute such writes without a backend, and unauthenticated audit writes remain closed.
 
-## Backend provisioning
+## Account-summary backfill
 
-The Functions service uses Firebase Admin credentials from Application Default Credentials or `GOOGLE_APPLICATION_CREDENTIALS`. Provision the administrator account with the operator script; it reads `ADMIN_PASSWORD` from the environment and prompts for `ADMIN_EMAIL` when needed. No credentials or default account identifiers are stored in the repository.
+The local-only operator script uses a service-account JSON supplied through the environment and copies only the allowed summary fields. It is never bundled into Hosting and must not be committed.
 
 ```powershell
-cd functions
-$env:ADMIN_PASSWORD = "provided-out-of-band"
-npm run bootstrap
+$env:FIREBASE_PROJECT_ID = "your-approved-project-id"
+$env:FIREBASE_SERVICE_ACCOUNT_JSON = Get-Content .\service-account.json -Raw
+npm run backfill:account-summaries -- --dry-run
+npm run backfill:account-summaries
 ```
 
-Use `npm run set-role -- <email> admin` only for an existing administrator account. After custom claims change, sign out and sign in again to refresh the ID token.
+For emulator testing only, set `FIRESTORE_EMULATOR_HOST=127.0.0.1:8080` and `FIREBASE_PROJECT_ID=demo-primera`. The script refuses mismatched emulator variables. Do not run this script as part of the build or deployment.
 
-## Shared Android resources
+## Deployment
 
-The web refactor does not delete Android-owned collections, documents, fields, or callable functions. Patient-owner access remains in `firestore.rules`. Doctor/assignment resources and legacy clinical functions are preserved for a separate ownership decision and are not exposed by this portal.
+Deployment is approved for `primera-eafe6`. Use the repository-local CLI, deploy Hosting first, then rules:
 
-Android must handle disabled accounts during login and session refresh.
+```powershell
+node_modules\.bin\firebase.cmd deploy --only hosting --project primera-eafe6
+node_modules\.bin\firebase.cmd deploy --only firestore:rules --project primera-eafe6
+```
+
+No Functions deployment and no `--force` are permitted. Existing shared resources are not deleted.
+
+## Smoke test
+
+- Sign in with the provisioned admin and confirm the overview counts and latest audit entries.
+- Open the account table, search by a name and email prefix, and move to the next page.
+- Edit name/username; confirm email remains read-only.
+- Disable and re-enable an account; confirm the status audit entries.
+- Request a password reset; confirm only a recovery-email confirmation is shown.
+- Open the audit log, filter it, and export CSV; confirm the export records only filter and row count.
+- Attempt login with a non-admin Auth user and confirm portal access is rejected and the user is signed out.

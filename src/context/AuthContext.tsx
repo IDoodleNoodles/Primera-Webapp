@@ -1,8 +1,9 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'firebase/auth'
-import { auth, firebaseConfigured } from '../firebase'
-import { recordAuthFailure, recordLogin, recordLogout } from '../services/portalService'
+import { doc, getDoc } from 'firebase/firestore'
+import { auth, db, firebaseConfigured } from '../firebase'
+import { recordLogin, recordLogout, recordUnauthorizedAccess } from '../services/portalService'
 import type { UserSession } from '../types'
 
 function describeAuthError(authError: unknown) {
@@ -20,6 +21,7 @@ type AuthContextValue = {
   error: string | null
   signIn: (email: string, password: string) => Promise<void>
   logout: () => Promise<void>
+  verifyAdmin: () => Promise<boolean>
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
@@ -28,6 +30,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserSession | null>(null)
   const [loading, setLoading] = useState(firebaseConfigured)
   const [error, setError] = useState<string | null>(null)
+
+  const verifyAdmin = useCallback(async () => {
+    if (!auth?.currentUser || !db) return false
+    const adminDocument = await getDoc(doc(db, 'admins', auth.currentUser.uid))
+    return adminDocument.exists() && adminDocument.data().active === true
+  }, [])
 
   useEffect(() => {
     if (!auth) {
@@ -44,8 +52,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       try {
-        const tokenResult = await firebaseUser.getIdTokenResult(true)
-        if (tokenResult.claims.role !== 'admin') {
+        if (!(await verifyAdmin())) {
+          await recordUnauthorizedAccess().catch(() => undefined)
           throw new Error('This account is not authorized for the administrator portal.')
         }
         await recordLogin()
@@ -63,7 +71,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setLoading(false)
       }
     })
-  }, [])
+  }, [verifyAdmin])
 
   const value = useMemo<AuthContextValue>(() => ({
     user,
@@ -75,7 +83,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         await signInWithEmailAndPassword(auth, email.trim(), password)
       } catch (signInError) {
-        await recordAuthFailure().catch(() => undefined)
         throw new Error(describeAuthError(signInError), { cause: signInError })
       }
     },
@@ -84,7 +91,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (auth) await signOut(auth)
       setUser(null)
     },
-  }), [error, loading, user])
+    verifyAdmin,
+  }), [error, loading, user, verifyAdmin])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
