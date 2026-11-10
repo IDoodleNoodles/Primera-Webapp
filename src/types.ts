@@ -13,16 +13,18 @@ export type PatientAccount = {
   username: string
   email: string
   status: string
-  registrationDate: string
+  createdAt: string
   lastActive: string
 }
 
 export type AuditLog = {
   id: string
-  actorId: string | null
-  actorName: string
+  actorUid: string
+  actorEmail: string
   action: string
-  target: string
+  targetId: string
+  targetType: string
   timestamp: string
   result: string
+  details: string
 }

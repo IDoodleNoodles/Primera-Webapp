@@ -1,7 +1,4 @@
 {
-  "functions": {
-    "source": "functions"
-  },
   "hosting": {
     "public": "dist",
     "ignore": [
@@ -25,9 +22,6 @@
     },
     "firestore": {
       "port": 8080
-    },
-    "functions": {
-      "port": 5001
     },
     "ui": {
       "enabled": true,

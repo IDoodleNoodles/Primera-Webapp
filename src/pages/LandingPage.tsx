@@ -38,7 +38,7 @@ export function LandingPage() {
             <label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required /></label>
             <button className="button primary" type="submit">Sign in</button>
           </form>
-          {!firebaseConfigured && <p className="form-message">Firebase is not configured. Copy `.env.example` to `.env.local` and add project credentials.</p>}
+          {!firebaseConfigured && <p className="form-message">Firebase is not configured. Copy `.env.local.example` to `.env.local` and add project credentials.</p>}
           {(error || formError) && <p className="form-error">{error || formError}</p>}
         </div>
       </div>
