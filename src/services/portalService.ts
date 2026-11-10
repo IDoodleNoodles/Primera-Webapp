@@ -1,5 +1,5 @@
 import { getFunctions, httpsCallable } from 'firebase/functions'
-import { firebaseConfigured } from '../firebase'
+import { app, firebaseConfigured } from '../firebase'
 import type { AuditLog, PatientAccount } from '../types'
 
 export type PatientAccountProjection = Omit<PatientAccount, 'uid'>
@@ -13,7 +13,7 @@ export type AdminDashboard = {
 
 async function call<T>(name: string, data: object): Promise<T> {
   if (!firebaseConfigured) throw new Error('Firebase is not configured.')
-  const callable = httpsCallable<object, T>(getFunctions(), name)
+  const callable = httpsCallable<object, T>(getFunctions(app ?? undefined, 'us-central1'), name)
   return (await callable(data)).data
 }
 

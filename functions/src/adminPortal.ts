@@ -8,6 +8,7 @@ if (!getApps().length) initializeApp()
 
 const auth = getAuth()
 const db = getFirestore()
+const callableOptions = { enforceAppCheck: true, cors: true } as const
 const projectionFields = ['name', 'username', 'email', 'status', 'registrationDate', 'lastActive'] as const
 const editableFields = new Set(['name', 'username', 'status'])
 
@@ -119,19 +120,19 @@ async function patientProjection(uid: string): Promise<Projection> {
   return projectPatientAccount(snapshot.docs[0].data())
 }
 
-export const recordAdminLogin = onCall({ enforceAppCheck: true }, async (request) => {
+export const recordAdminLogin = onCall(callableOptions, async (request) => {
   await requireAdmin(request)
   await writeAudit(request, 'Login', 'admin-portal', 'success')
   return { success: true }
 })
 
-export const recordAdminLogout = onCall({ enforceAppCheck: true }, async (request) => {
+export const recordAdminLogout = onCall(callableOptions, async (request) => {
   await requireAdmin(request)
   await writeAudit(request, 'Logout', 'admin-portal', 'success')
   return { success: true }
 })
 
-export const recordAuthFailure = onCall({ enforceAppCheck: true }, async (request) => {
+export const recordAuthFailure = onCall(callableOptions, async (request) => {
   const ip = (request.rawRequest as { ip?: string } | undefined)?.ip ?? 'unknown'
   const bucket = Math.floor(Date.now() / 60_000)
   const ipHash = createHash('sha256').update(ip).digest('hex')
@@ -146,7 +147,7 @@ export const recordAuthFailure = onCall({ enforceAppCheck: true }, async (reques
   return { accepted: true }
 })
 
-export const fetchAdminDashboard = onCall({ enforceAppCheck: true }, async (request) => {
+export const fetchAdminDashboard = onCall(callableOptions, async (request) => {
   await requireAdmin(request)
   try {
     const snapshot = await db.collection('users').where('role', '==', 'patient').select('status', 'active').limit(1000).get()
@@ -166,7 +167,7 @@ export const fetchAdminDashboard = onCall({ enforceAppCheck: true }, async (requ
   }
 })
 
-export const fetchPatientAccounts = onCall({ enforceAppCheck: true }, async (request) => {
+export const fetchPatientAccounts = onCall(callableOptions, async (request) => {
   await requireAdmin(request)
   const data = dataObject(request.data)
   const search = typeof data.search === 'string' ? data.search.trim().toLocaleLowerCase() : ''
@@ -190,7 +191,7 @@ export const fetchPatientAccounts = onCall({ enforceAppCheck: true }, async (req
   }
 })
 
-export const updatePatientAccount = onCall({ enforceAppCheck: true }, async (request) => {
+export const updatePatientAccount = onCall(callableOptions, async (request) => {
   await requireAdmin(request)
   const data = dataObject(request.data)
   const uid = typeof data.uid === 'string' ? data.uid : ''
@@ -231,7 +232,7 @@ export const updatePatientAccount = onCall({ enforceAppCheck: true }, async (req
   }
 })
 
-export const setPatientAccountStatus = onCall({ enforceAppCheck: true }, async (request) => {
+export const setPatientAccountStatus = onCall(callableOptions, async (request) => {
   await requireAdmin(request)
   const data = dataObject(request.data)
   const uid = typeof data.uid === 'string' ? data.uid : ''
@@ -251,7 +252,7 @@ export const setPatientAccountStatus = onCall({ enforceAppCheck: true }, async (
   }
 })
 
-export const resetPatientPassword = onCall({ enforceAppCheck: true }, async (request) => {
+export const resetPatientPassword = onCall(callableOptions, async (request) => {
   await requireAdmin(request)
   const data = dataObject(request.data)
   const uid = typeof data.uid === 'string' ? data.uid : ''
@@ -269,7 +270,7 @@ export const resetPatientPassword = onCall({ enforceAppCheck: true }, async (req
   }
 })
 
-export const fetchAuditLogs = onCall({ enforceAppCheck: true }, async (request) => {
+export const fetchAuditLogs = onCall(callableOptions, async (request) => {
   await requireAdmin(request)
   const data = dataObject(request.data)
   const filter = typeof data.filter === 'string' ? data.filter.trim().toLocaleLowerCase() : ''
@@ -285,7 +286,7 @@ export const fetchAuditLogs = onCall({ enforceAppCheck: true }, async (request) 
   }
 })
 
-export const recordAuditExport = onCall({ enforceAppCheck: true }, async (request) => {
+export const recordAuditExport = onCall(callableOptions, async (request) => {
   await requireAdmin(request)
   const data = dataObject(request.data)
   const filter = typeof data.filter === 'string' ? data.filter : ''
