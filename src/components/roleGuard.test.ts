@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { isAllowedRole } from './roleGuard'
 
-describe('admin route guard', () => {
-  it('allows admins and rejects other roles', () => {
+describe('admin role guard', () => {
+  it('allows administrators', () => {
     expect(isAllowedRole('admin', ['admin'])).toBe(true)
-    expect(isAllowedRole('doctor', ['admin'])).toBe(false)
+  })
+
+  it('rejects missing roles', () => {
     expect(isAllowedRole(undefined, ['admin'])).toBe(false)
   })
 })

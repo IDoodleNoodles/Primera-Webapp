@@ -13,7 +13,7 @@ const firebaseConfig = {
 
 export const firebaseConfigured = Object.values(firebaseConfig).every(Boolean)
 
-const app = firebaseConfigured
+export const app = firebaseConfigured
   ? getApps()[0] ?? initializeApp(firebaseConfig)
   : null
 

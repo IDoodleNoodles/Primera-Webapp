@@ -1,28 +1,16 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { onAuthStateChanged, signInWithEmailAndPassword, signOut, updatePassword } from 'firebase/auth'
-import { doc, getDoc } from 'firebase/firestore'
-import { auth, db, firebaseConfigured } from '../firebase'
-import type { Role, UserSession } from '../types'
+import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'firebase/auth'
+import { auth, firebaseConfigured } from '../firebase'
+import { recordAuthFailure, recordLogin, recordLogout } from '../services/portalService'
+import type { UserSession } from '../types'
 
 function describeAuthError(authError: unknown) {
-  const code = typeof authError === 'object' && authError && 'code' in authError
-    ? String(authError.code)
-    : ''
-
-  if (code === 'auth/invalid-credential' || code === 'auth/wrong-password' || code === 'auth/user-not-found') {
-    return 'Invalid email or password. Confirm the staff account exists and try again.'
-  }
-  if (code === 'auth/user-disabled') {
-    return 'This staff account is disabled. Ask an administrator to enable it.'
-  }
-  if (code === 'auth/too-many-requests') {
-    return 'Too many sign-in attempts. Wait a few minutes and try again.'
-  }
-  if (code === 'auth/network-request-failed') {
-    return 'Unable to reach Firebase Authentication. Check your connection and try again.'
-  }
-
+  const code = typeof authError === 'object' && authError && 'code' in authError ? String(authError.code) : ''
+  if (code === 'auth/invalid-credential' || code === 'auth/wrong-password' || code === 'auth/user-not-found') return 'Invalid email or password.'
+  if (code === 'auth/user-disabled') return 'This administrator account is disabled.'
+  if (code === 'auth/too-many-requests') return 'Too many sign-in attempts. Try again later.'
+  if (code === 'auth/network-request-failed') return 'Unable to reach Firebase Authentication.'
   return authError instanceof Error ? authError.message : 'Unable to load portal access.'
 }
 
@@ -31,7 +19,6 @@ type AuthContextValue = {
   loading: boolean
   error: string | null
   signIn: (email: string, password: string) => Promise<void>
-  changePassword: (password: string) => Promise<void>
   logout: () => Promise<void>
 }
 
@@ -43,16 +30,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!auth || !db) {
+    if (!auth) {
       return
     }
 
     const firebaseAuth = auth
-    const firestore = db
-
     return onAuthStateChanged(firebaseAuth, async (firebaseUser) => {
       setError(null)
-
       if (!firebaseUser) {
         setUser(null)
         setLoading(false)
@@ -61,24 +45,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       try {
         const tokenResult = await firebaseUser.getIdTokenResult(true)
-        const role = tokenResult.claims.role as Role | undefined
-        const profile = await getDoc(doc(firestore, 'users', firebaseUser.uid))
-        const profileData = profile.data()
-
-        if (role !== 'admin' && role !== 'doctor') {
-          setError('Your account is authenticated but has no valid portal role. Run the staff role setup, then sign out and sign in again.')
-          await signOut(firebaseAuth)
-          setUser(null)
-        } else {
-          setUser({
-            uid: firebaseUser.uid,
-            name: typeof profileData?.name === 'string' && profileData.name.trim()
-              ? profileData.name.trim()
-              : firebaseUser.displayName ?? firebaseUser.email ?? 'Portal user',
-            email: firebaseUser.email ?? '',
-            role,
-          })
+        if (tokenResult.claims.role !== 'admin') {
+          throw new Error('This account is not authorized for the administrator portal.')
         }
+        await recordLogin()
+        setUser({
+          uid: firebaseUser.uid,
+          name: firebaseUser.displayName ?? firebaseUser.email ?? 'Administrator',
+          email: firebaseUser.email ?? '',
+          role: 'admin',
+        })
       } catch (authError) {
         setUser(null)
         setError(describeAuthError(authError))
@@ -89,46 +65,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
-  const value = useMemo<AuthContextValue>(
-    () => ({
-      user,
-      loading,
-      error,
-      signIn: async (email, password) => {
-        if (!auth) {
-          throw new Error('Firebase is not configured. Add the VITE_FIREBASE_* values to .env.local.')
-        }
-
-        setError(null)
-        const credential = await signInWithEmailAndPassword(auth, email.trim(), password)
-        await credential.user.getIdToken(true)
-      },
-      changePassword: async (password) => {
-        if (!auth?.currentUser) {
-          throw new Error('You must be signed in to change your password.')
-        }
-
-        await updatePassword(auth.currentUser, password)
-      },
-      logout: async () => {
-        if (auth) await signOut(auth)
-        setUser(null)
-      },
-    }),
-    [error, loading, user],
-  )
+  const value = useMemo<AuthContextValue>(() => ({
+    user,
+    loading,
+    error,
+    signIn: async (email, password) => {
+      if (!auth) throw new Error('Firebase is not configured. Add the VITE_FIREBASE_* values to .env.local.')
+      setError(null)
+      try {
+        await signInWithEmailAndPassword(auth, email.trim(), password)
+      } catch (signInError) {
+        await recordAuthFailure().catch(() => undefined)
+        throw new Error(describeAuthError(signInError), { cause: signInError })
+      }
+    },
+    logout: async () => {
+      if (auth?.currentUser) await recordLogout().catch(() => undefined)
+      if (auth) await signOut(auth)
+      setUser(null)
+    },
+  }), [error, loading, user])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
-// Keep the provider and its context hook together for the auth boundary.
 // eslint-disable-next-line react-refresh/only-export-components
 export function useAuth() {
   const context = useContext(AuthContext)
-
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider')
-  }
-
+  if (!context) throw new Error('useAuth must be used within an AuthProvider')
   return context
 }

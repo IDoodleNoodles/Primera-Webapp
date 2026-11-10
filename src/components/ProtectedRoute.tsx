@@ -13,14 +13,7 @@ export function ProtectedRoute({
 }) {
   const { user } = useAuth()
 
-  if (!user) {
-    return <Navigate to="/" replace />
-  }
-
-  if (!isAllowedRole(user.role, allowedRoles)) {
-    const fallback = user.role === 'admin' ? '/admin' : user.role === 'doctor' ? '/doctor' : '/'
-    return <Navigate to={fallback} replace />
-  }
-
+  if (!user) return <Navigate to="/" replace />
+  if (!isAllowedRole(user.role, allowedRoles)) return <Navigate to="/" replace />
   return <>{children}</>
 }

@@ -9,13 +9,12 @@ export function LandingPage() {
   const [password, setPassword] = useState('')
   const [formError, setFormError] = useState<string | null>(null)
 
-  if (loading) return <div className="landing-page"><p>Checking portal access...</p></div>
-  if (user) return <Navigate to={user.role === 'admin' ? '/admin' : '/doctor'} replace />
+  if (loading) return <div className="landing-page"><p>Checking admin access...</p></div>
+  if (user) return <Navigate to="/admin" replace />
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setFormError(null)
-
     try {
       await signIn(email, password)
     } catch (submitError) {
@@ -27,25 +26,19 @@ export function LandingPage() {
     <div className="landing-page">
       <div className="landing-shell">
         <div className="landing-intro">
-          <p className="eyebrow">Primera Admin & OBGYN Portal</p>
-          <h1>Warm, focused tools for maternal care teams</h1>
-          <p className="muted">
-            Access the administrative dashboard and OB-GYN monitoring tools for pregnancy risk review, assignment workflows, and alert management.
-          </p>
+          <p className="eyebrow">Primera Admin Portal</p>
+          <h1>Account operations with privacy by default</h1>
+          <p className="muted">Manage patient basic account information and activity status. Clinical and maternal health data is not available in this portal.</p>
         </div>
-
         <div className="landing-card">
-          <p className="eyebrow">Sign in</p>
+          <p className="eyebrow">Administrator sign in</p>
           <h2>Welcome back</h2>
-          <p className="muted">Use your staff account to open the operations or clinical workspace.</p>
-
           <form className="login-form" onSubmit={handleSubmit}>
             <label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>
             <label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required /></label>
-            <button className="button primary" type="submit">Sign in to portal</button>
+            <button className="button primary" type="submit">Sign in</button>
           </form>
-
-          {!firebaseConfigured && <p className="form-message">Firebase is not configured. Copy `.env.example` to `.env.local` and add your project credentials.</p>}
+          {!firebaseConfigured && <p className="form-message">Firebase is not configured. Copy `.env.example` to `.env.local` and add project credentials.</p>}
           {(error || formError) && <p className="form-error">{error || formError}</p>}
         </div>
       </div>

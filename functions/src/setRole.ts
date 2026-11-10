@@ -6,33 +6,21 @@ if (!getApps().length) initializeApp()
 
 const auth = getAuth()
 const db = getFirestore()
-const validRoles = new Set(['admin', 'doctor', 'patient'])
 
 async function main() {
   const email = process.argv[2]
-  const role = process.argv[3]
-
-  if (!email || !role || !validRoles.has(role)) {
-    throw new Error('Usage: npm run set-role -- <email> <admin|doctor|patient>')
+  if (!email || process.argv[3] !== 'admin') {
+    throw new Error('Usage: npm run set-role -- <email> admin')
   }
 
   const user = await auth.getUserByEmail(email)
-  await auth.setCustomUserClaims(user.uid, { role })
+  await auth.setCustomUserClaims(user.uid, { role: 'admin' })
   await db.doc(`users/${user.uid}`).set({
     email,
-    role,
+    role: 'admin',
     updatedAt: FieldValue.serverTimestamp(),
   }, { merge: true })
-
-  if (role === 'doctor') {
-    await db.doc(`doctors/${user.uid}`).set({
-      email,
-      active: true,
-      updatedAt: FieldValue.serverTimestamp(),
-    }, { merge: true })
-  }
-
-  console.log(`Assigned role '${role}' to ${email} (${user.uid}).`)
+  console.log(`Assigned administrator role to ${email} (${user.uid}).`)
   console.log('Sign out and sign back in to refresh the Firebase ID token.')
 }
 
