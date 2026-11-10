@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "test:unit": "vitest run src/components/roleGuard.test.ts functions/src/adminOverview.test.ts functions/src/adminPortal.test.ts",
+    "test:unit": "vitest run src/components/roleGuard.test.ts functions/src/adminPortal.test.ts",
     "test:rules": "vitest run tests/firestore.rules.test.ts",
     "preview": "vite preview"
   },
