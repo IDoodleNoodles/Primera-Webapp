@@ -1,64 +1,50 @@
-# Primera
+# Primera Admin Portal
 
-Primera is an AI-assisted pregnancy support platform designed to improve maternal health monitoring, engagement, and clinical oversight through smartwatch data, voice input, and personalized goals.
+Primera's web app is an administrator-only portal for managing patient account basics and auditing administrative activity. Patient registration, authentication, maternal health records, wearable data, check-ins, notifications, and recommendations belong to the Android app and are not exposed here.
 
-## Project focus
+## Web scope
 
-The system combines a patient-facing mobile experience with a clinical web portal that supports the care team:
+Administrators can list, search, view, and edit only these patient account fields:
 
-- patient app: pregnancy tracking, symptom reporting, smartwatch health data, and personalized daily goals
-- web admin portal: staff account and system administration only; it cannot access patient records, clinical data, assignments, link requests, risk information, or patient-linked audit details
-- doctor / OB-GYN portal: assigned patient review, risk monitoring, and clinical workflow support
+- name
+- username
+- email (read-only)
+- status
+- registration date
+- last active
 
-## Why it matters
+Patient accounts cannot be created in this portal. Status changes update Firebase Authentication, revoke refresh tokens, and create an immutable server-side audit event. Password reset requests never return a password or reset link.
 
-Pregnancy care often depends on fragmented data from check-ins, wearable devices, and patient-reported symptoms. Primera brings these signals together into a more proactive and supportive workflow for both patients and clinicians.
+The browser has no direct Firestore read access to `users`. All account, dashboard, and audit data is returned by admin-protected callable functions as a basic-information projection. Clinical and Android-owned shared collections remain outside the web surface.
 
-## Key features
+## Development
 
-- smartwatch-based health trend monitoring
-- voice and conversational input for symptom and check-in updates
-- AI-assisted personalization of pregnancy support goals
-- risk-based tracking and alert workflows
-- role-based access for admins, doctors, and patients
-- clinical dashboards for assigned patient review and oversight
+Copy `.env.example` to `.env.local`, add the Firebase web configuration, and enable Email/Password sign-in in Firebase Authentication.
 
-## Patient-doctor linking workflow
+```powershell
+npm install
+npm run build
+npm run lint
+npm run test:unit
+npm run test:rules
+```
 
-Primera uses a hybrid linking model:
+Do not deploy from this branch during the refactor.
 
-- A patient can use the mobile app without a participating doctor and continue relying on the printable maternal health summary.
-- A patient can request a link to a participating doctor. The request is stored as `doctorLinkRequests/{requestId}` and remains pending until that doctor accepts or declines it.
-- Accepting a request creates the assignment, updates the patient profile, and adds the patient to the doctor's assigned-patient queue.
-- Patient-doctor assignments are managed through the clinical workflow and are not exposed to administrators.
-- Only accepted or administratively assigned patients appear in Doctor Assigned Patients and can be opened in Patient Details.
+## Backend provisioning
 
-The doctor response is handled by the `respondToDoctorLinkRequest` callable function so the request decision and assignment records are updated together. Firestore rules allow patients to create and view their own requests and doctors to view requests addressed to them. Administrators do not access link requests or the operational patient registry.
-
-## Architecture
-
-This repository contains the web-side clinical layer for the Primera platform.
-
-- Android app: completed patient-facing experience
-- Web app: admin and doctor/OB-GYN portal
-- Backend: Firebase Authentication, Firestore, and Cloud Functions for shared auth, data access, and role enforcement
-
-## Current status
-
-This web app uses Firebase email/password authentication and resolves admin or OBGYN access from `users/{uid}`. Copy `.env.example` to `.env.local`, add the Firebase web configuration, and enable Email/Password sign-in in Firebase Authentication.
-
-Roles are issued as Firebase Authentication custom claims by the backend. The `functions/` service includes admin-only callable functions for creating staff accounts, changing account status, resetting passwords, and writing audit logs. The production admin and OBGYN dashboards use the role and assignment-aware Firestore rules in `firestore.rules`.
-
-### Backend setup
-
-Install and build the Functions service:
+The Functions service uses Firebase Admin credentials from Application Default Credentials or `GOOGLE_APPLICATION_CREDENTIALS`. Provision the administrator account with the operator script; it reads `ADMIN_PASSWORD` from the environment and prompts for `ADMIN_EMAIL` when needed. No credentials or default account identifiers are stored in the repository.
 
 ```powershell
 cd functions
-npm install
-npm run build
+$env:ADMIN_PASSWORD = "provided-out-of-band"
+npm run bootstrap
 ```
 
-## Summary
+Use `npm run set-role -- <email> admin` only for an existing administrator account. After custom claims change, sign out and sign in again to refresh the ID token.
 
-Primera is a maternal health platform that helps pregnant users stay supported and informed while giving clinicians clinical tools and administrators staff/system-management tools.
+## Shared Android resources
+
+The web refactor does not delete Android-owned collections, documents, fields, or callable functions. Patient-owner access remains in `firestore.rules`. Doctor/assignment resources and legacy clinical functions are preserved for a separate ownership decision and are not exposed by this portal.
+
+Android must handle disabled accounts during login and session refresh.

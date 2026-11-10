@@ -7,17 +7,15 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "test:unit": "vitest run src/components/roleGuard.test.ts functions/src/adminOverview.test.ts",
+    "test:unit": "vitest run src/components/roleGuard.test.ts functions/src/adminOverview.test.ts functions/src/adminPortal.test.ts",
     "test:rules": "vitest run tests/firestore.rules.test.ts",
     "preview": "vite preview"
   },
   "dependencies": {
     "firebase": "^9.14.0",
-    "lucide-react": "^1.33.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "react-router-dom": "^7.18.2",
-    "recharts": "^3.10.1"
+    "react-router-dom": "^7.18.2"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
