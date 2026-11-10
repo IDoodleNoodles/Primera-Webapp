@@ -1,23 +1,29 @@
-@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,650&family=Source+Sans+3:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;500;600;700&family=Quicksand:wght@400;500;600;700&display=swap');
 
 :root {
-  --bg: #f6efe8;
-  --bg-soft: #fdf8f3;
-  --surface: #fffdfb;
-  --ink: #2c241f;
-  --muted: #6f645c;
-  --line: #eadfd6;
-  --primary: #0f766e;
-  --primary-dark: #0b5b55;
-  --primary-soft: #d7efe9;
-  --accent: #c45c6a;
-  --accent-soft: #f8dce0;
-  --sidebar: #163833;
-  --sidebar-ink: #f4efe8;
-  --shadow: 0 18px 40px rgba(74, 46, 34, 0.08);
+  --bg: #fffaf2;
+  --bg-soft: #f6f0fa;
+  --surface: #ffffff;
+  --ink: #1a1829;
+  --muted: #5e627d;
+  --line: #e2ddf0;
+  --primary: #834ece;
+  --primary-dark: #663ea6;
+  --primary-soft: #e8d7f7;
+  --accent: #7039c9;
+  --accent-soft: #f3e8ff;
+  --sidebar: #f6f0fa;
+  --sidebar-ink: #1a1829;
+  --success: #127e36;
+  --success-soft: #dcfce7;
+  --warning: #a16207;
+  --warning-soft: #fef3c7;
+  --error: #6e1a1a;
+  --error-soft: #fee2e2;
+  --shadow: 0 18px 40px rgba(102, 62, 166, 0.08);
   --radius: 20px;
 
-  font-family: 'Source Sans 3', 'Segoe UI', sans-serif;
+  font-family: 'Nunito Sans', 'Segoe UI', sans-serif;
   line-height: 1.55;
   font-weight: 400;
   color: var(--ink);
@@ -43,8 +49,8 @@ body,
 body {
   margin: 0;
   background:
-    radial-gradient(circle at 8% 12%, #f8d9c8 0%, transparent 32%),
-    radial-gradient(circle at 92% 0%, #cfe8e2 0%, transparent 28%),
+    radial-gradient(circle at 8% 12%, rgba(232, 215, 247, 0.55) 0%, transparent 32%),
+    radial-gradient(circle at 92% 0%, rgba(243, 232, 255, 0.75) 0%, transparent 28%),
     var(--bg);
   color: var(--ink);
 }
@@ -70,8 +76,8 @@ p {
 h1,
 h2,
 h3 {
-  font-family: Fraunces, Georgia, serif;
+  font-family: 'Quicksand', 'Nunito Sans', sans-serif;
   line-height: 1.15;
-  letter-spacing: -0.02em;
-  font-weight: 650;
+  letter-spacing: 0;
+  font-weight: 700;
 }
