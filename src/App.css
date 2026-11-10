@@ -139,6 +139,25 @@
   overflow: hidden;
 }
 
+.metric-card > span,
+.metric-card > strong,
+.metric-card > small {
+  position: relative;
+  z-index: 1;
+  display: block;
+}
+
+.metric-card > strong {
+  margin: 8px 0 6px;
+  color: var(--ink);
+  font-size: 2.1rem;
+  line-height: 1.15;
+}
+
+.metric-card > small {
+  color: var(--muted);
+}
+
 .metric-card::after {
   content: '';
   position: absolute;
