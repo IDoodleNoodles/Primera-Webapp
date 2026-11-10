@@ -59,20 +59,6 @@ npm install
 npm run build
 ```
 
-For the one-time initial accounts, authenticate the Firebase Admin SDK with Google Application Default Credentials or `GOOGLE_APPLICATION_CREDENTIALS`, then set passwords in the shell and run the bootstrap script:
-
-```powershell
-$env:ADMIN_PASSWORD = "your-admin-password"
-$env:DOCTOR_PASSWORD = "your-doctor-password"
-npm run bootstrap
-```
-
-The default bootstrap emails are `primera_admin@email.com` and `primera_doctor@email.com`. The script sets the `admin` and `doctor` custom claims and creates their profile documents. Never commit service-account JSON files or passwords.
-
-Deploy the free-plan Firestore security rules from the project root with `npx firebase-tools deploy --only firestore`. Cloud Functions deployment requires the Firebase Blaze plan; the admin portal can load the staff directory without Functions, but staff mutations require the deployed callable functions.
-
-The current dashboard records remain prototype fallback data only when Firebase web config is missing. On the Firebase Spark plan, the admin portal loads staff summaries directly from Firestore but does not show patient-derived overview metrics because those require a secured callable backend. Deploying the Functions service requires the Blaze plan. The admin portal does not load or substitute patient records in either prototype or live mode.
-
 ## Summary
 
 Primera is a maternal health platform that helps pregnant users stay supported and informed while giving clinicians clinical tools and administrators staff/system-management tools.
