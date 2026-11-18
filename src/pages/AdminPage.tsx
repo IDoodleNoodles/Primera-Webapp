@@ -39,6 +39,11 @@ function ErrorState({ message, retry }: { message: string; retry: () => void }) 
   return <section className="panel state-block state-error"><p>{message}</p><button className="button primary" onClick={retry}>Retry</button></section>
 }
 
+type AccountAction = {
+  account: PatientAccount
+  type: 'status' | 'reset'
+}
+
 function Overview({ dashboard }: { dashboard: AdminDashboard }) {
   return (
     <div className="page">
@@ -57,7 +62,18 @@ function Overview({ dashboard }: { dashboard: AdminDashboard }) {
 }
 
 function AuditTable({ logs }: { logs: AuditLog[] }) {
-  return <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Actor</th><th>Action</th><th>Target</th><th>When</th><th>Result</th></tr></thead><tbody>{logs.map((log) => <tr key={log.id}><td>{log.actorEmail}</td><td>{log.action}</td><td>{`${log.targetType}:${log.targetId}`}</td><td>{formatDate(log.timestamp)}</td><td>{log.result}</td></tr>)}</tbody></table></div>
+  return <div className="admin-table-wrap" data-testid="audit-log-list"><table className="admin-table"><thead><tr><th>Actor</th><th>Action</th><th>Target</th><th>When</th><th>Result</th></tr></thead><tbody>{logs.map((log) => {
+    let targetLabel = `${log.targetType}:${log.targetId}`
+    if (log.targetType === 'adminAccount') {
+      try {
+        const details = JSON.parse(log.details) as { targetEmail?: string }
+        if (details.targetEmail) targetLabel = details.targetEmail
+      } catch {
+        targetLabel = log.targetId
+      }
+    }
+    return <tr key={log.id} data-testid="audit-entry"><td>{log.actorEmail}</td><td>{log.action}</td><td>{targetLabel}</td><td>{formatDate(log.timestamp)}</td><td>{log.result}</td></tr>
+  })}</tbody></table></div>
 }
 
 function Accounts() {
@@ -70,6 +86,7 @@ function Accounts() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState('')
+  const [pendingAction, setPendingAction] = useState<AccountAction | null>(null)
 
   const load = useCallback(async (pageCursor: AccountCursor | null = null) => {
     setLoading(true)
@@ -109,20 +126,21 @@ function Accounts() {
 
   async function reset(account: PatientAccount) {
     setBusy(account.uid); setError(''); setMessage('')
-    try { await resetPatientPassword(account.uid); setMessage('Password reset requested. The account email will receive recovery instructions.') }
-    catch (resetError) { setError(resetError instanceof Error ? resetError.message : 'Unable to request password reset.') }
+    try { await resetPatientPassword(account.uid); setMessage('Password reset issued. Recovery instructions were sent to the account email.') }
+    catch (resetError) { setError(resetError instanceof Error ? resetError.message : 'Unable to issue password reset.') }
     finally { setBusy('') }
   }
 
   return <div className="page">
     <header className="page-header"><div><p className="eyebrow">Patient accounts</p><h2>Basic information and status</h2></div></header>
     <p className="muted">Only name, username, email, status, created date, and last active are available here. Patient accounts are created in the mobile app. Status changes affect Android login enforcement; this portal cannot disable Firebase Authentication users.</p>
-    {message && <p className="form-message">{message}</p>}{error && <p className="form-error">{error}</p>}
+    {message && <p className="form-message" data-testid="reset-success-msg" role="status">{message}</p>}{error && accounts.length > 0 && <p className="form-error" data-testid="reset-error-msg" role="alert">{error}</p>}
     <section className="panel">
-      <label>Search accounts<input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search name, username, or email" /></label>
-      {loading ? <div className="state-block"><p>Loading accounts...</p></div> : accounts.length === 0 ? <div className="state-block"><p>No accounts found.</p></div> : <><div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Name</th><th>Username</th><th>Email</th><th>Status</th><th>Created</th><th>Last active</th><th>Actions</th></tr></thead><tbody>{accounts.map((account) => <tr key={account.uid}><td>{account.name || 'Not set'}</td><td>{account.username || 'Not set'}</td><td>{account.email || 'Not set'}</td><td><span className={`status-badge ${account.status === 'disabled' ? 'status-warning' : 'status-good'}`}>{account.status}</span></td><td>{formatDate(account.createdAt)}</td><td>{formatDate(account.lastActive)}</td><td className="table-actions"><button className="button" onClick={() => { setEditing(account); setFields({ name: account.name, username: account.username }) }}>Edit</button><button className="button" disabled={busy !== ''} onClick={() => void toggle(account)}>{account.status === 'disabled' ? 'Enable' : 'Disable'}</button><button className="button" disabled={busy !== ''} onClick={() => void reset(account)}>Reset password</button></td></tr>)}</tbody></table></div>{nextCursor && <button className="button" onClick={() => void load(nextCursor)}>Next page</button>}</>}
+      <label>Search accounts<input data-testid="account-search" type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search name, username, or email" /></label>
+      {loading ? <div className="state-block"><p>Loading accounts...</p></div> : error && accounts.length === 0 ? <ErrorState message={error} retry={() => void load()} /> : accounts.length === 0 ? <div className="state-block"><p>No accounts found.</p></div> : <><div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Name</th><th>Username</th><th>Email</th><th>Status</th><th>Created</th><th>Last active</th><th>Actions</th></tr></thead><tbody>{accounts.map((account) => <tr key={account.uid} data-testid={`admin-row-${account.email}`}><td>{account.name || 'Not set'}</td><td>{account.username || 'Not set'}</td><td>{account.email || 'Not set'}</td><td><span className={`status-badge ${account.status === 'disabled' ? 'status-warning' : 'status-good'}`}>{account.status}</span></td><td>{formatDate(account.createdAt)}</td><td>{formatDate(account.lastActive)}</td><td className="table-actions"><button className="button" onClick={() => { setEditing(account); setFields({ name: account.name, username: account.username }) }}>Edit</button><button className="button" disabled={busy !== ''} onClick={() => setPendingAction({ account, type: 'status' })}>{account.status === 'disabled' ? 'Enable' : 'Disable'}</button><button className="button" data-testid="reset-password-btn" aria-label={`Reset password for ${account.email}`} disabled={busy !== ''} onClick={() => setPendingAction({ account, type: 'reset' })}>Reset password</button></td></tr>)}</tbody></table></div>{nextCursor && <button className="button" onClick={() => void load(nextCursor)}>Next page</button>}</>}
     </section>
     {editing && <section className="panel confirmation-dialog"><h3>Edit basic information</h3><form className="admin-form" onSubmit={(event) => void save(event)}><label>Name<input value={fields.name} onChange={(event) => setFields({ ...fields, name: event.target.value })} required /></label><label>Username<input value={fields.username} onChange={(event) => setFields({ ...fields, username: event.target.value })} required /></label><label>Email<input value={editing.email} readOnly /></label><div className="form-actions"><button className="button primary" disabled={busy === 'save'}>Save changes</button><button type="button" className="button" onClick={() => setEditing(null)}>Cancel</button></div></form></section>}
+    {pendingAction && <div className="confirmation-backdrop"><section className="confirmation-dialog" data-testid="reset-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="account-action-title"><h3 id="account-action-title">{pendingAction.type === 'status' ? `${pendingAction.account.status === 'disabled' ? 'Enable' : 'Disable'} account?` : 'Send password reset email?'}</h3><p>{pendingAction.type === 'status' ? `This will ${pendingAction.account.status === 'disabled' ? 'allow' : 'prevent'} the patient from signing in through the mobile app.` : `Recovery instructions will be sent to ${pendingAction.account.email || 'the account email'}. No password will be displayed.`}</p><div className="form-actions"><button className="button primary" data-testid={pendingAction.type === 'reset' ? 'reset-confirm-btn' : undefined} disabled={busy !== ''} onClick={() => { const action = pendingAction; setPendingAction(null); void (action.type === 'status' ? toggle(action.account) : reset(action.account)) }}>{pendingAction.type === 'status' ? 'Confirm' : 'Confirm'}</button><button className="button" data-testid={pendingAction.type === 'reset' ? 'reset-cancel-btn' : undefined} disabled={busy !== ''} onClick={() => setPendingAction(null)}>Cancel</button></div></section></div>}
   </div>
 }
 
@@ -149,7 +167,7 @@ function Audit() {
     catch (exportError) { setError(exportError instanceof Error ? exportError.message : 'Unable to record the export.') }
   }
 
-  return <div className="page"><header className="page-header"><div><p className="eyebrow">Auditability</p><h2>Audit log</h2></div><button className="button primary" disabled={!logs.length} onClick={() => void exportLogs()}>Export CSV</button></header><section className="panel"><label>Filter<input type="search" value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Filter action or target" /></label>{error && <p className="form-error">{error}</p>}{loading ? <div className="state-block"><p>Loading audit logs...</p></div> : logs.length === 0 ? <div className="state-block"><p>No audit activity is available.</p></div> : <AuditTable logs={logs} />}</section></div>
+  return <div className="page"><header className="page-header"><div><p className="eyebrow">Auditability</p><h2>Audit log</h2></div><button className="button primary" disabled={!logs.length} onClick={() => void exportLogs()}>Export CSV</button></header><section className="panel"><label>Filter<input type="search" value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Filter action or target" /></label>{loading ? <div className="state-block"><p>Loading audit logs...</p></div> : error ? <ErrorState message={error} retry={() => void load()} /> : logs.length === 0 ? <div className="state-block"><p>No audit activity is available.</p></div> : <AuditTable logs={logs} />}</section></div>
 }
 
 export function AdminPage({ section }: { section: Section }) {
@@ -157,14 +175,23 @@ export function AdminPage({ section }: { section: Section }) {
   const [error, setError] = useState('')
   const { user } = useAuth()
 
+  const loadDashboard = useCallback(async () => {
+    try {
+      setDashboard(await fetchAdminDashboard())
+      setError('')
+    }
+    catch (loadError) { setError(loadError instanceof Error ? loadError.message : 'Unable to load the dashboard.') }
+  }, [])
+
   useEffect(() => {
     if (section !== 'overview' || !user) return
-    fetchAdminDashboard().then(setDashboard).catch((loadError) => setError(loadError instanceof Error ? loadError.message : 'Unable to load the dashboard.'))
-  }, [section, user])
+    const timer = window.setTimeout(() => { void loadDashboard() }, 0)
+    return () => window.clearTimeout(timer)
+  }, [loadDashboard, section, user])
 
   if (section === 'accounts') return <Accounts />
   if (section === 'audit') return <Audit />
-  if (error) return <div className="page"><ErrorState message={error} retry={() => window.location.reload()} /></div>
+  if (error) return <div className="page"><ErrorState message={error} retry={() => void loadDashboard()} /></div>
   if (!dashboard) return <div className="page"><section className="panel state-block"><p>Loading dashboard...</p></section></div>
   return <Overview dashboard={dashboard} />
 }

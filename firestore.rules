@@ -57,7 +57,7 @@ service cloud.firestore {
         && request.resource.data.timestamp == request.time
         && request.resource.data.action in [
           'login', 'logout', 'list_view', 'search_view', 'edit', 'status_change',
-          'password_reset', 'csv_export', 'unauthorized_access'
+          'PASSWORD_RESET_ISSUED', 'password_reset', 'csv_export', 'unauthorized_access'
         ]
         && request.resource.data.actorEmail is string
         && request.resource.data.targetId is string

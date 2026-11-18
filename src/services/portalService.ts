@@ -122,7 +122,7 @@ export async function fetchPatientAccounts(search = '', cursor: AccountCursor | 
   const normalized = search.trim().toLowerCase()
   const buildQuery = (field: 'nameLower' | 'emailLower', previous: QueryDocumentSnapshot<DocumentData> | null) => {
     const constraints = normalized
-      ? [where(field, '>=', normalized), endAt(`${normalized}\uf8ff`)]
+      ? [orderBy(field), where(field, '>=', normalized), endAt(`${normalized}\uf8ff`)]
       : [orderBy('nameLower')]
     return query(collection(firestore, 'accountSummaries'), ...constraints, ...(previous ? [startAfter(previous)] : []), limit(20))
   }
@@ -171,7 +171,7 @@ export async function resetPatientPassword(uid: string) {
   const email = String(summary.data().email ?? '')
   if (!email) throw new Error('The account has no email address.')
   await sendPasswordResetEmail(firebaseAuth, email)
-  await writeAudit('password_reset', uid, 'accountSummary', 'success', '')
+  await writeAudit('PASSWORD_RESET_ISSUED', uid, 'adminAccount', 'success', JSON.stringify({ targetEmail: email }))
 }
 
 export async function fetchAuditLogs(filter = ''): Promise<AuditLog[]> {
