@@ -34,9 +34,9 @@ export function LandingPage() {
           <p className="eyebrow">Administrator sign in</p>
           <h2>Welcome back</h2>
           <form className="login-form" onSubmit={handleSubmit}>
-            <label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>
-            <label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required /></label>
-            <button className="button primary" type="submit">Sign in</button>
+            <label>Email<input data-testid="login-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>
+            <label>Password<input data-testid="login-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} required /></label>
+            <button className="button primary" data-testid="login-submit" type="submit">Sign in</button>
           </form>
           {!firebaseConfigured && <p className="form-message">Firebase is not configured. Copy `.env.local.example` to `.env.local` and add project credentials.</p>}
           {(error || formError) && <p className="form-error">{error || formError}</p>}

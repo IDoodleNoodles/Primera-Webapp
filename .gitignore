@@ -12,9 +12,15 @@ node_modules
 dist
 dist-ssr
 *.local
+*.env.test
+std-evidence-web/
+playwright-report/
+test-results/
 *-firebase-adminsdk-*.json
 service-account*.json
 google-credentials*.json
+screenshots/module15/*
+!screenshots/module15/.gitkeep
 
 # Editor directories and files
 .vscode/*

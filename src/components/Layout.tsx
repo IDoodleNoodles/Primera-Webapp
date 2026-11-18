@@ -15,13 +15,13 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="brand"><span className="brand-mark">P</span> Primera Admin</div>
           <nav className="nav">
             <NavLink to="/admin" end className={baseLinkClass}>Overview</NavLink>
-            <NavLink to="/admin/accounts" className={baseLinkClass}>Patient accounts</NavLink>
-            <NavLink to="/admin/audit" className={baseLinkClass}>Audit log</NavLink>
+            <NavLink to="/admin/accounts" className={baseLinkClass} aria-label="Admin accounts">Patient accounts</NavLink>
+            <NavLink to="/admin/audit" className={baseLinkClass} aria-label="Audit log">Audit log</NavLink>
           </nav>
         </div>
         <div className="sidebar-footer">
           <div className="user-tag">{user?.name}</div>
-          <button className="button subtle" onClick={() => void logout()}>Sign out</button>
+          <button className="button subtle" data-testid="logout-btn" onClick={() => void logout()}>Sign out</button>
         </div>
       </aside>
       <main className="content">{children}</main>
